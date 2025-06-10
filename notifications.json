@@ -1,0 +1,4 @@
+{
+  "file_uploaded": "A new {file} has been uploaded for {entity}.",
+  "file_upload_confirmation": "You successfully uploaded a {file} for {entity}."
+}

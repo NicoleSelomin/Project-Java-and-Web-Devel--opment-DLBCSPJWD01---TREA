@@ -1,0 +1,312 @@
+/* styles.css - Custom Styling Layer for TREA */
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f9f9fb;
+  color: #333;
+  line-height: 1.6;
+  padding-top: 90px; /* prevent header overlap */
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+h1, h2, h3, h5 {
+  color: #001f3f;
+  font-weight: bold;
+}
+
+h5 {
+  margin-bottom: 2em;
+}
+
+.custom-navbar {
+  background: linear-gradient(to right, #FF69B4, #C154C1);
+  padding: 15px 30px;
+  color: white;
+}
+
+.navbar-brand {
+  display: flex;
+  text-decoration: none;
+  color: white;
+  font-size: 20px;
+  font-weight: bold;
+}
+
+.animate-text {
+  animation: pulse 4s infinite;
+  font-style: italic;
+  font-weight: bold;
+  color: white;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+
+.nav-link {
+  color: #ffffff;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.3s ease;
+}
+
+.nav-link:hover {
+  font-weight: bold;
+  color: #f9f871;
+}
+
+.badge {
+  font-size: 0.7rem;
+}
+
+/* Don't hide the toggler anymore */
+.navbar-toggler {
+  border-color: rgba(255, 255, 255, 0.8);
+}
+
+@media (max-width: 767.98px) {
+  #filterCollapse {
+    margin-top: 0.75rem;
+  }
+}
+
+.main-title {
+  background-color: rgb(251, 129, 229);
+}
+
+main {
+  padding: 30px;
+}
+
+/*section card */
+section {
+  margin-bottom: 40px;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  background: linear-gradient(to right, #FF69B4, pink);
+}
+
+.custom-btn {
+  color: white;
+  font-weight: bold;
+  outline: 2px solid #C154C1;
+  background: #FF69B4;
+}
+
+.custom-btn:hover {
+  color: white;
+  background: purple;
+}
+
+.btn-hover {
+  color: red;
+  font-weight: bold;
+  outline-style: solid;
+  outline-color: #FF69B4;
+}
+
+.btn-hover:hover {
+  background-color: white;
+    outline-style: solid;
+  outline-color: red;
+}
+
+.form-label {
+  font-weight: bold;
+}
+
+input, textarea, select {
+  outline: 2px solid #C154C1;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0px 1000px white inset !important;
+    -webkit-text-fill-color: #000 !important;
+    transition: background-color 9999s ease-out 0s;
+}
+
+input[type="password"] {
+    background-color: white !important;
+}
+
+    /*  inline custom styles */
+    label span.text-danger {
+      margin-left: 4px;
+    }
+
+    /*
+.service-card {
+  min-width: 200px;
+  max-width: 220px;
+  transition: transform 0.2s, box-shadow 0.3s;
+}
+
+.service-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 10px rgba(0, 80, 150, 0.15);
+}
+  */
+
+    .nav-tabs {
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  .nav-tabs .nav-item {
+    white-space: nowrap;
+  }
+
+
+/* Sidebar layout */
+.sidebar {
+  background: linear-gradient(to bottom, #FF69B4, #C154C1);
+  padding: 20px;
+  border-radius: 8px;
+  color: white;
+}
+
+.about-us-image img {
+  width: 100%;
+  max-width: 200px;
+  height: auto;
+  margin: 0 auto;
+}
+
+/* Large screens: make sidebar fill at least 90% of viewport height */
+@media (min-width: 768px) {
+  .sidebar {
+    min-height: 90vh;
+    position: sticky;
+    top: 80px; /* adjust if you have a fixed header */
+  }
+}
+
+.sidebar iframe {
+  flex-grow: 1;
+  min-height: 300px;
+  width: 100%;
+  border: none;
+}
+
+/* Sidebar images */
+.profile-summary img {
+  width: 100px;
+  height: 100px;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+/* Avoid padding pushing sidebar away from top/bottom */
+.sidebar .profile-summary {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* Main row stretches full height */
+.dashboard-row {
+  flex: 1;
+  display: flex;
+  height: 100%;
+  margin: 0;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+/* Responsive dashboard cards */
+.dashboard-card {
+  background-color: #FF69B4;
+  color: white;
+  padding: 20px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+  text-align: center;
+  font-weight: bold;
+  transition: background-color 0.3s;
+  text-decoration: none;
+}
+
+.dashboard-card:hover {
+  background-color: lightblue;
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.dashboard-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin-top: 30px;
+}
+
+.dashboard-links .dashboard-card {
+  flex: 1 1 calc(33.333% - 20px); /* 3 per row */
+  min-width: 250px;
+}
+
+/* Responsive fallback */
+@media (max-width: 768px) {
+  .dashboard-links .dashboard-card {
+    flex: 1 1 calc(50% - 20px);
+  }
+}
+
+@media (max-width: 480px) {
+  .dashboard-links .dashboard-card {
+    flex: 1 1 100%;
+  }
+}
+
+        .highlight {
+            background-color: #FF69B4;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-weight: 500;
+        }
+        .section-title {
+            border-left: 5px solid #FF69B4;
+            padding-left: 10px;
+            margin-top: 25px;
+            margin-bottom: 10px;
+        }
+
+footer {
+  background: linear-gradient(to right, #FF69B4, #FF6EC7);
+  padding: 15px 0 10px;
+  font-size: 14px;
+  color: #ffffff;
+}
+
+footer h6,
+footer p,
+footer a {
+  color: #ffffff !important;
+  font-weight: bold;
+}
+
+footer a:hover {
+  color: #001f3f !important;
+}
+
+footer hr {
+  border-color: black;
+}
+

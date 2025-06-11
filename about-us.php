@@ -41,7 +41,7 @@
         <div class="sidebar text-center">
           <h5 class="text-white">Shop your ideal property like you shop for your favorite food.</h5>
           <!-- Company illustration/logo -->
-          <img src="about-us-image.png" alt="TREA About Us" class="mb-3 img-fluid">
+          <img src="images/about-us-image.png" alt="TREA About Us" class="mb-3 img-fluid">
           <p class="text-white small">YOUR TRUSTED REAL ESTATE AGENTS HERE TO PROVIDE YOU ONLY WITH THE BEST AND MOST AFFORDABLE</p>
         </div>
       </div>

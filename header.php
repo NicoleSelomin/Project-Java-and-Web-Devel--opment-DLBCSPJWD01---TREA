@@ -37,7 +37,7 @@ if (isset($_SESSION['client_id'])) {
 
       <!-- LEFT: Agency Logo & Name -->
       <a class="navbar-brand d-flex align-items-center" href="index.php">
-        <img src="logo.png" alt="TREA Logo" class="me-2" style="height: 40px;">
+        <img src="images/logo.png" alt="TREA Logo" class="me-2" style="height: 40px;">
         <span class="d-none d-md-inline text-white fw-bold">
           Trusted Real Estate Agency (TREA)
         </span>

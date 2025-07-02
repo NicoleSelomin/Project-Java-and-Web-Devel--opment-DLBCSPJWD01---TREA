@@ -11,128 +11,261 @@
  *   - db_connect.php for database connection
  *   - send-upload-notification.php for notification logic
  *   - Staff must be authenticated as 'accountant'
- *   - GET parameter fee_id
+ *   - GET parameter fee_id 
  */
 
 session_start();
 require 'db_connect.php';
-require_once 'send-upload-notification.php';
 
-// Access control: only 'accountant' can use this page
-if (!isset($_SESSION['staff_id']) || strtolower($_SESSION['role']) !== 'accountant') {
+// Auth check
+if (!isset($_SESSION['staff_id']) || !in_array(strtolower($_SESSION['role']), ['general manager', 'accountant'])) {
+    $_SESSION['redirect_after_login'] = 'manage-owner-rental-fees.php';
     header("Location: staff-login.php");
     exit();
 }
 
-// Validate fee_id
-if (!isset($_GET['fee_id'])) {
-    die("Fee ID missing.");
-}
-$fee_id = (int) $_GET['fee_id'];
-
-// Fetch fee details, including property and owner info
 $stmt = $pdo->prepare("
-    SELECT f.*, p.property_name, o.owner_id, u.full_name AS owner_name
+    SELECT 
+        inv.invoice_id, inv.claim_id, inv.invoice_date, inv.due_date, inv.amount,
+        cc.property_id
+    FROM rental_recurring_invoices inv
+    JOIN client_claims cc ON inv.claim_id = cc.claim_id
+    WHERE inv.recurring_active = 1
+");
+$stmt->execute();
+$activeInvoices = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+foreach ($activeInvoices as $inv) {
+    $check = $pdo->prepare("SELECT 1 FROM owner_rental_fees WHERE claim_id = ? AND invoice_id = ?");
+    $check->execute([$inv['claim_id'], $inv['invoice_id']]);
+    if (!$check->fetchColumn()) {
+        $insert = $pdo->prepare("
+            INSERT INTO owner_rental_fees 
+            (claim_id, invoice_id, start_period, end_period, invoice_month, rent_received)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ");
+        $start_period = $inv['invoice_date'];
+        $end_period = $inv['due_date'];
+        $invoice_month = date('Y-m', strtotime($inv['invoice_date']));
+        $rent_received = $inv['amount'];
+        $insert->execute([
+            $inv['claim_id'],
+            $inv['invoice_id'],
+            $start_period,
+            $end_period,
+            $invoice_month,
+            $rent_received
+        ]);
+    }
+}
+
+// 2. Now fetch for display!
+$where = [];
+$params = [];
+if (!empty($_GET['owner_id'])) {
+    $where[] = "o.owner_id = ?";
+    $params[] = (int)$_GET['owner_id'];
+}
+if (!empty($_GET['property_id'])) {
+    $where[] = "p.property_id = ?";
+    $params[] = (int)$_GET['property_id'];
+}
+if (!empty($_GET['month'])) {
+    $where[] = "f.invoice_month = ?";
+    $params[] = $_GET['month'];
+}
+
+$whereSql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+
+$stmt = $pdo->prepare("
+    SELECT 
+        f.*, 
+        p.property_name, p.property_id,
+        o.owner_id, u.full_name AS owner_name, u.phone_number AS owner_phone,
+        o.bank_name, o.account_number AS bank_account_number, o.account_holder_name, o.payment_mode,
+        c.client_id, cu.full_name AS client_name, cu.phone_number AS client_phone,
+        inv.due_date, inv.payment_status AS client_payment_status
     FROM owner_rental_fees f
     JOIN client_claims cc ON f.claim_id = cc.claim_id
+    JOIN clients c ON cc.client_id = c.client_id
+    JOIN users cu ON c.user_id = cu.user_id
     JOIN properties p ON cc.property_id = p.property_id
     JOIN owners o ON p.owner_id = o.owner_id
     JOIN users u ON o.user_id = u.user_id
-    WHERE f.fee_id = ?
+    LEFT JOIN rental_recurring_invoices inv ON f.invoice_id = inv.invoice_id
+    $whereSql
+    ORDER BY f.start_period DESC, p.property_name
 ");
-$stmt->execute([$fee_id]);
-$fee = $stmt->fetch(PDO::FETCH_ASSOC);
-
-if (!$fee) {
-    die("Fee not found.");
-}
-
-// Prepare upload directory, ensuring it exists
-$owner_id = $fee['owner_id'];
-$owner_name = preg_replace('/[^a-z0-9]/i', '_', strtolower($fee['owner_name']));
-$property_name = preg_replace('/[^a-z0-9]/i', '_', strtolower($fee['property_name']));
-$uploadDir = "uploads/owner/{$owner_id}_{$owner_name}/rental_fees/{$property_name}/";
-if (!is_dir($uploadDir)) {
-    mkdir($uploadDir, 0777, true);
-}
-
-// Define which fields are uploaded (and their user-facing labels)
-$fields = [
-    'receipt_management'  => 'Receipt for Management Fee',
-    'receipt_maintenance' => 'Receipt for Maintenance Fee',
-    'tax_receipt'         => 'Tax Deduction Receipt',
-    'transfer_proof'      => 'Proof of Rent Transfer'
-];
-
-// Handle form submission: process all file uploads
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    foreach ($fields as $field => $label) {
-        if (!empty($_FILES[$field]) && $_FILES[$field]['error'] === UPLOAD_ERR_OK) {
-            $tmpPath = $_FILES[$field]['tmp_name'];
-            $fileName = basename($_FILES[$field]['name']);
-            $ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
-
-            // Enforce PDF-only upload
-            if ($ext !== 'pdf') {
-                die("Only PDF files are allowed for {$label}.");
-            }
-
-            // Move uploaded file to the correct location
-            $destPath = $uploadDir . $field . ".pdf";
-            if (move_uploaded_file($tmpPath, $destPath)) {
-                // Update database with the new file path
-                $update = $pdo->prepare("UPDATE owner_rental_fees SET {$field} = ? WHERE fee_id = ?");
-                $update->execute([$destPath, $fee_id]);
-
-                // Send notification to owner and accountant (self)
-                sendUploadNotification(
-                    $pdo,
-                    $_SESSION['staff_id'],
-                    'staff',
-                    'receipt',
-                    $label,
-                    'Rental Fee Transfer',
-                    'property_owner',
-                    $owner_id,
-                    'owner-rental-management-properties.php'
-                );
-            }
-        }
-    }
-    // Redirect to manage page after successful upload(s)
-    header("Location: manage-owner-rental-fees.php?updated=1");
-    exit();
-}
+$stmt->execute($params);
+$fees = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Upload Rental Fee Documents</title>
+    <meta charset="UTF-8">    
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <!-- Consistent Bootstrap version -->
+    <title>Manage Owner Rental Fees</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css?v=<?= time() ?>">
 </head>
 <body class="bg-light d-flex flex-column min-vh-100">
-    <?php include 'header.php'; ?>
-    <main class="container py-5 flex-grow-1">
-        <h4 class="mb-4 text-primary">
-            Upload Fee Documents for <?= htmlspecialchars($fee['property_name']) ?>
-        </h4>
-        <form method="POST" enctype="multipart/form-data" class="bg-white p-4 rounded shadow-sm">
-            <?php foreach ($fields as $field => $label): ?>
-                <div class="mb-3">
-                    <label class="form-label">Upload <?= $label ?> (PDF only)</label>
-                    <input type="file" name="<?= $field ?>" accept="application/pdf" class="form-control">
-                </div>
-            <?php endforeach; ?>
-            <button type="submit" class="btn btn-success">Submit Documents</button>
-            <a href="manage-owner-rental-fees.php" class="btn btn-secondary ms-2">Cancel</a>
-        </form>
-    </main>
-    <?php include 'footer.php'; ?>
-    <!-- Bootstrap JS for modal/file/inputs -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"></script>
+<?php include 'header.php'; ?>
+
+<div class="container py-4 flex-grow-1">
+    <h3 class="mb-4">Manage Owner Rental Fees</h3>
+    
+    <!-- Filter/Search -->
+    <form class="row g-2 mb-3" method="get">
+        <div class="col-auto">
+            <input type="text" class="form-control" name="owner_id" placeholder="Owner ID" value="<?= htmlspecialchars($_GET['owner_id'] ?? '') ?>">
+        </div>
+        <div class="col-auto">
+            <input type="text" class="form-control" name="property_id" placeholder="Property ID" value="<?= htmlspecialchars($_GET['property_id'] ?? '') ?>">
+        </div>
+        <div class="col-auto">
+            <input type="month" class="form-control" name="month" placeholder="Month" value="<?= htmlspecialchars($_GET['month'] ?? '') ?>">
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-outline-primary">Filter</button>
+            <a href="manage-owner-rental-fees.php" class="btn btn-link">Reset</a>
+        </div>
+    </form>
+    
+    <div class="table-responsive">
+    <table class="table table-bordered table-hover bg-white align-middle">
+<thead class="table-light">
+<tr>
+    <th>Month</th>
+    <th>Property</th>
+    <th>Client</th>
+    <th>Client Paid?</th>
+    <th>Rent</th>
+    <th>Mgmt Fee</th>
+    <th>Maint. Fee</th>
+    <th>Tax Fee</th>
+    <th>Net to Owner</th>
+    <th>Receipts</th>
+    <th>Transfer Proof</th>
+    <th>Status</th>
+    <th>Owner Bank & Contact</th>
+    <th>Actions</th>
+</tr>
+</thead>
+<tbody>
+<?php foreach ($fees as $fee): ?>
+<?php
+    $rowClass = "";
+    if ($fee['client_payment_status'] == 'unpaid') {
+        $rowClass = 'table-warning';
+    } elseif (!$fee['transfer_proof']) {
+        $rowClass = 'table-danger';
+    } else {
+        $rowClass = 'table-success';
+    }
+    $period = date('M Y', strtotime($fee['start_period']));
+?>
+<tr class="<?= $rowClass ?>">
+    <td><?= $period ?></td>
+    <td>
+        <?= htmlspecialchars($fee['property_name']) ?>
+        <br><span class="text-muted small">ID: <?= $fee['property_id'] ?></span>
+    </td>
+    <td>
+        <?= htmlspecialchars($fee['client_name']) ?><br>
+        <span class="text-muted small"><?= htmlspecialchars($fee['client_phone'] ?? '-') ?></span>
+    </td>
+    <td>
+        <?php
+            if ($fee['client_payment_status'] == 'paid') {
+                echo '<span class="badge bg-success">Yes</span>';
+            } else {
+                echo '<span class="badge bg-danger">No</span>';
+            }
+        ?>
+    </td>
+    <td><?= number_format($fee['rent_received'],2) ?></td>
+    <td>
+        <?= number_format($fee['management_fee'],2) ?>
+        <?php if ($fee['receipt_management']): ?>
+            <br><a href="<?= $fee['receipt_management'] ?>" target="_blank">View</a>
+        <?php else: ?>
+            <br><span class="text-muted small">Not uploaded</span>
+        <?php endif; ?>
+    </td>
+    <td>
+        <?= number_format($fee['maintenance_fee'],2) ?>
+        <?php if ($fee['receipt_maintenance']): ?>
+            <br><a href="<?= $fee['receipt_maintenance'] ?>" target="_blank">View</a>
+        <?php else: ?>
+            <br><span class="text-muted small">Not uploaded</span>
+        <?php endif; ?>
+    </td>
+    <td>
+        <?= number_format($fee['tax_fee'],2) ?>
+        <?php if ($fee['tax_receipt']): ?>
+            <br><a href="<?= $fee['tax_receipt'] ?>" target="_blank">View</a>
+        <?php else: ?>
+            <br><span class="text-muted small">Not uploaded</span>
+        <?php endif; ?>
+    </td>
+    <td>
+        <?= number_format($fee['net_transfer'],2) ?>
+    </td>
+    <td>
+        <?php if ($fee['receipt_management']): ?>
+            <a href="<?= $fee['receipt_management'] ?>" target="_blank" class="badge bg-info">Mgmt</a>
+        <?php endif; ?>
+        <?php if ($fee['receipt_maintenance']): ?>
+            <a href="<?= $fee['receipt_maintenance'] ?>" target="_blank" class="badge bg-info">Maint</a>
+        <?php endif; ?>
+        <?php if ($fee['tax_receipt']): ?>
+            <a href="<?= $fee['tax_receipt'] ?>" target="_blank" class="badge bg-info">Tax</a>
+        <?php endif; ?>
+    </td>
+    <td>
+        <?php if ($fee['transfer_proof']): ?>
+            <a href="<?= $fee['transfer_proof'] ?>" target="_blank" class="badge bg-primary">Proof</a>
+        <?php else: ?>
+            <span class="text-danger small">Not uploaded</span>
+        <?php endif; ?>
+    </td>
+    <td>
+        <?php
+            if (!$fee['client_payment_status'] || $fee['client_payment_status'] == 'unpaid') {
+                echo '<span class="badge bg-warning text-dark">Awaiting Client Payment</span>';
+            } elseif (!$fee['transfer_proof']) {
+                echo '<span class="badge bg-danger">Awaiting Transfer</span>';
+            } elseif ($fee['owner_confirmation']) {
+                echo '<span class="badge bg-success">Confirmed</span>';
+            } else {
+                echo '<span class="badge bg-info">Transferred, Awaiting Owner</span>';
+            }
+        ?>
+    </td>
+    <td>
+        <div class="small">
+            <strong><?= htmlspecialchars($fee['owner_name'] ?? '-') ?></strong>
+            <br><?= htmlspecialchars($fee['owner_phone'] ?? '-') ?>
+            <br><?= htmlspecialchars($fee['bank_name'] ?? '-') ?>
+            <br><?= htmlspecialchars($fee['bank_account_number'] ?? '-') ?>
+            <br><?= htmlspecialchars($fee['account_holder_name'] ?? '-') ?>
+            <br><em><?= htmlspecialchars($fee['payment_mode'] ?? '-') ?></em>
+        </div>
+    </td>
+    <td>
+        <a href="manage-owner-fee.php?fee_id=<?= $fee['fee_id'] ?>" class="btn btn-sm btn-outline-primary">
+            Upload/Replace Docs
+        </a>
+    </td>
+</tr>
+<?php endforeach; ?>
+</tbody>
+    </table>
+    </div>
+    <p class="mt-3 text-muted">Legend: <span class="badge bg-success">Confirmed</span> <span class="badge bg-info">Transferred</span> <span class="badge bg-warning text-dark">Awaiting Client</span> <span class="badge bg-danger">Action Needed</span></p>
+</div>
+
+<?php include 'footer.php'; ?>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

@@ -55,11 +55,7 @@ $service_slug = $data['service_slug'];
 $service_specific = [];
 $tableMap = [
     'brokerage'                  => 'brokerage_details',
-    'architecture_plan_drawing'  => 'architecture_plan_details',
-    'legal_assistance'           => 'legal_assistance_details',
-    'construction_supervision'   => 'construction_supervision_details',
     'rental_property_management' => 'rental_property_management_details',
-    'sale_property_management'   => 'sale_property_management_details'
 ];
 
 if (isset($tableMap[$service_slug])) {
@@ -84,6 +80,7 @@ $html = <<<HTML
 <html>
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
     body { font-family: Arial, sans-serif; }
     h2 { color: #0056b3; }
@@ -107,7 +104,7 @@ $html .= displayRow("Application Fee", "application_fee", $data);
 // Shared property fields
 $sharedFields = [
     'property_name', 'location', 'property_description', 'land_size', 'comments',
-    'number_of_bedrooms', 'number_of_bathrooms', 'floor_count'
+    'number_of_bedrooms', 'number_of_bathrooms', 'floor_count', 'urgent'
 ];
 foreach ($sharedFields as $field) {
     $label = ucwords(str_replace('_', ' ', $field));
@@ -123,24 +120,6 @@ switch ($service_slug) {
         $html .= displayRow("Brokerage Purpose", "brokerage_purpose", $service_specific);
         $html .= displayRow("Estimated Price", "estimated_price", $service_specific);
         $html .= displayRow("Reason for Sale", "reason_for_sale", $service_specific);
-        $html .= "<tr><th>Urgent Sale</th><td>" . (!empty($service_specific['urgent_sale']) ? 'Yes' : 'No') . "</td></tr>";
-        break;
-    case 'architecture_plan_drawing':
-        $html .= displayRow("Project Title", "project_title", $service_specific);
-        $html .= displayRow("Land Size", "land_size", $service_specific);
-        $html .= displayRow("Building Type", "building_type", $service_specific);
-        $html .= displayRow("Design Preferences", "design_preferences", $service_specific);
-        break;
-    case 'legal_assistance':
-        $html .= displayRow("Request Type", "request_type", $service_specific);
-        $html .= displayRow("Subject Property", "subject_property", $service_specific);
-        $html .= displayRow("Location", "location", $service_specific);
-        $html .= displayRow("Issue Description", "issue_description", $service_specific);
-        break;
-    case 'construction_supervision':
-        $html .= displayRow("Building Type", "building_type", $service_specific);
-        $html .= displayRow("Current Stage", "current_stage", $service_specific);
-        $html .= displayRow("Supervision Needs", "supervision_needs", $service_specific);
         break;
     case 'rental_property_management':
         $html .= displayRow("Property Type", "property_type", $service_specific);
@@ -148,11 +127,6 @@ switch ($service_slug) {
         $html .= displayRow("Service Level", "service_level", $service_specific);
         $html .= displayRow("Proposed Lease Terms", "lease_terms", $service_specific);
         $html .= displayRow("Estimated Price", "rental_expectation", $service_specific);
-        $html .= "<tr><th>Urgent Request</th><td>" . (!empty($service_specific['urgent']) ? 'Yes' : 'No') . "</td></tr>";
-        break;
-    case 'sale_property_management':
-        $html .= displayRow("Property Condition", "property_condition", $service_specific);
-        $html .= displayRow("Ownership Type", "ownership_type", $service_specific);
         break;
 }
 $html .= "</table></body></html>";
@@ -168,6 +142,16 @@ $dompdf = new Dompdf($options);
 $dompdf->loadHtml($html);
 $dompdf->setPaper('A4', 'portrait');
 $dompdf->render();
+
+// Step 7: Save PDF to correct folder
+$ownerFolder = $data['owner_id'] . '_' . preg_replace('/[^a-z0-9_]/i', '_', $data['owner_name']);
+$serviceFolder = $data['service_id'] . '_' . $data['service_slug'];
+$targetDir = "uploads/owner/{$ownerFolder}/applications/{$serviceFolder}/request_{$request_id}/";
+if (!is_dir($targetDir)) mkdir($targetDir, 0777, true);
+
+$pdfPath = $targetDir . "application_form.pdf"; // Save with a clear name
+
+file_put_contents($pdfPath, $dompdf->output());
 
 // Prevent any stray output before streaming PDF
 if (ob_get_length()) ob_end_clean();

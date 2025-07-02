@@ -2,18 +2,13 @@
 |--------------------------------------------------------------------------
 | about-us.php
 |--------------------------------------------------------------------------
-| TREA "About Us" Page
-| - Responsive layout with Bootstrap 5.
-| - Sidebar for a quick brand message and visual.
-| - Main content: About section, Mission, Vision, Timeline, Team, and Policies.
-| - Collapsible "Read more" sections for concise presentation.
-| - Includes header and footer PHP includes for site-wide consistency.
 |
-| Instructions:
-| - Edit sections as needed for company changes.
-| - Sidebar image can be replaced.
-| - Policy links must match existing pages.
-|
+| TREA "About Us" Page 
+| - Responsive layout using Bootstrap 5. 
+| - A sidebar for a quick picture and message about your brand.
+| - The main parts are the About section, the Mission, the Vision, the Timeline, the Team, and the Rules.
+| - "Read more" sections that can be hidden to make the presentation shorter. 
+| - Uses PHP includes for the header and footer to keep the site consistent.
 -->
 
 <!DOCTYPE html>
@@ -32,83 +27,85 @@
 
 <div class="container-fluid">
   <div class="row">
-    <!-- Sidebar for brand message and image (collapsible on mobile) -->
-    <div class="col-12 col-md-3 mb-3">
-      <button class="btn btn-sm d-md-none animate-text custom-btn" type="button" data-bs-toggle="collapse" data-bs-target="#sidebarCollapse" aria-expanded="false" aria-controls="sidebarCollapse">
+<!-- Sidebar images and text for branding - collapsible on mobile -->
+    <aside class="col-12 col-md-2 bg-light mb-3 mb-md-0">
+      <button class="btn btn-sm d-md-none mb-3 custom-btn" type="button" data-bs-toggle="collapse" data-bs-target="#sidebarCollapse" aria-expanded="false" aria-controls="sidebarCollapse">
         Open Sidebar
       </button>
       <div class="collapse d-md-block" id="sidebarCollapse">
-        <div class="sidebar text-center">
+        <div class="sidebar text-center bg-primary p-3 rounded shadow-sm">
           <h5 class="text-white">Shop your ideal property like you shop for your favorite food.</h5>
-          <!-- Company illustration/logo -->
-          <img src="images/about-us-image.png" alt="TREA About Us" class="mb-3 img-fluid">
-          <p class="text-white small">YOUR TRUSTED REAL ESTATE AGENTS HERE TO PROVIDE YOU ONLY WITH THE BEST AND MOST AFFORDABLE</p>
+          <img src="images/sidebar.png" alt="TREA About Us" class="mb-3 img-fluid rounded">
+          <p class="text-white small">Your trusted real estate agents—here to provide you only with the best and most affordable properties.</p>
         </div>
       </div>
-    </div>
+    </aside>
 
-    <!-- Main page content -->
-    <main class="col-12 col-md-9">
+    <!-- Main content --> 
+    <main class="col-12 col-md-9 ms-lg-5">
       <!-- Section: Page title -->
       <div class="text-center mb-5 px-3 px-md-0 border rounded shadow-sm main-title">
-        <h1 class="fs-2 fs-md-1 fw-bold text-dark">Know more about us</h1>
+        <h1 class="fs-2 fs-md-1 fw-bold text-dark">Learn more about us</h1>
       </div>
 
       <!-- Section: About -->
       <section class="mb-4 p-3 border rounded shadow-sm">
         <h2>About TREA</h2>
         <p class="text-dark">
-          Trusted Real Estate Agency (TREA) is dedicated to offering high-quality real estate services including property management,
-          legal documentation assistance, construction supervision,
-          <span id="moreText1" class="collapse"> and architectural planning. We serve property owners and renters and buyers, providing efficient and secure property transactions.</span>
+          Trusted Real Estate Agency (TREA) is committed to providing excellent real estate services. 
+          Trusted Real Estate Agency (TREA) is dedicated to delivering outstanding real estate services.
+          <span id="moreText1" class="collapse"> 
+            Right now, they only offer property management and brokerage services.             
+            We will be adding new services like property management for sales, construction supervision, legal help, and architectural design. 
+            We help people who want to buy or rent properties and property owners do so in a safe and easy way.
+          </span>
         </p>
         <div class="text-end">
-          <!-- Button toggles the "read more" collapsed section -->
+          <!-- Toggle 'Read more button' -->
           <button class="btn btn-sm toggle-btn" type="button" data-bs-toggle="collapse" data-bs-target="#moreText1">Read more</button>
         </div>
       </section>
 
       <!-- Section: Mission and Vision -->
       <section class="mb-4 p-3 border rounded shadow-sm">
-        <h3>Our Mission</h3>
+        <h3>Mission</h3>
         <p class="text-dark">
-          To be the most reliable and innovative real estate agency, ensuring satisfaction and security for all
-          stakeholders involved in property management and development.
+          To be the most reliable and innovative real estate agency, ensuring that everybody involved in property management and development is satisfied and secure
         </p>
-        <h3 class="mt-4">Our Vision</h3>
-        <p class="text-dark">To empower property owners and clients with seamless and trustworthy real estate solutions across the region.</p>
+        <h3 class="mt-4">Vision</h3>
+        <p class="text-dark">To give property owners and clients real estate solutions that are easy to use and reliable.</p>
       </section>
 
       <!-- Section: Timeline -->
       <section class="mb-4 p-3 border rounded shadow-sm">
-        <h3>Our Timeline</h3>
+        <h3>TREA Timeline</h3>
         <ul class="text-dark">
-          <li><strong>2023:</strong> TREA founded to transform the real estate industry.</li>
-          <li><strong>2024:</strong> Successfully onboarded over 100 properties.</li>
+          <li><strong>2023:</strong> TREA was started to change the real estate business.</li>
+          <li><strong>2024:</strong> Added more than 100 properties to the system successfully.</li>
           <span id="moreText3" class="collapse">
-            <li><strong>2025:</strong> Launch of digital service platform for online applications and contracts.</li>
+            <li><strong>2025:</strong> Starting a digital service platform for online  applications and process tracking.</li>
           </span>
         </ul>
         <div class="text-end">
-          <!-- Toggle more/less timeline -->
+          <!-- toggle read more button -->
           <button class="btn btn-sm toggle-btn" type="button" data-bs-toggle="collapse" data-bs-target="#moreText3">Read more</button>
         </div>
       </section>
 
       <!-- Section: Meet Our Team -->
       <section class="mb-4 p-3 border rounded shadow-sm">
-        <h3>Meet Our Team</h3>
+        <h3>Meet the TREA Team</h3>
         <ul class="text-dark">
-          <li><strong>General Manager:</strong> Oversees operations and decision-making.</li>
-          <li><strong>Property Manager:</strong> Coordinates property listings and maintenance.</li>
+          <li><strong>General Manager:</strong> Responsible for operations and making decisions.</li>
+          <li><strong>Property Manager:</strong> Coordinates property listings and upkeep.</li>
           <span id="moreText4" class="collapse">
-            <li><strong>Legal Officer:</strong> Ensures property documents and contracts comply with legal standards.</li>
-            <li><strong>Accountant:</strong> Manages financial records and transactions.</li>
-            <li><strong>Field Agents:</strong> Assist clients and inspect listed properties.</li>
+            <li><strong>Legal Officer:</strong> Makes sure that property documents and contracts meet legal requirements</li>
+            <li><strong>Accountant:</strong> Keeps track of all the financial transactions.</li>
+            <li><strong>Field Agents:</strong> Help clients and look at the properties that are for sale.</li>
           </span>
         </ul>
         <div class="text-end">
-          <!-- Toggle more/less team roles -->
+          <!-- read more toggle button  -->
           <button class="btn btn-sm toggle-btn" type="button" data-bs-toggle="collapse" data-bs-target="#moreText4">Read more</button>
         </div>
       </section>
@@ -120,16 +117,16 @@
           <li><a href="privacy-policy.php"><strong class="text-light">Privacy policy</strong></a></li>
           <li><a href="terms-of-use.php"><strong class="text-light">Terms of use</strong></a></li>
           <li><a href="refund-and-cancellatio.php"><strong class="text-light">Refund and cancellation policy</strong></a></li>
-          <li><a href="servive-request.php"><strong class="text-light">Service request policy</strong></a></li>
+          <li><a href="servive-request-policy.php"><strong class="text-light">Service request policy</strong></a></li>
           <span id="moreText5" class="collapse">
-            <li><a href="property-claim.php"><strong class="text-light">Property claim policy</strong></a></li>
-            <li><a href="propery-listing.php"><strong class="text-light">Property listing policy</strong></a></li>
-            <li><a href="property-managemnt.php"><strong class="text-light">Property management policy</strong></a></li>
-            <li><a href="brokerage.php"><strong class="text-light">Brokerage policy</strong></a></li>
+            <li><a href="property-claim-policy.php"><strong class="text-light">Property claim policy</strong></a></li>
+            <li><a href="propery-listing-policy.php"><strong class="text-light">Property listing policy</strong></a></li>
+            <li><a href="property-managemnt-policy.php"><strong class="text-light">Property management policy</strong></a></li>
+            <li><a href="brokerage-policy.php"><strong class="text-light">Brokerage policy</strong></a></li>
           </span>
         </ul>
         <div class="text-end">
-          <!-- Toggle more/less policy links -->
+          <!-- toggle read more -->
           <button class="btn btn-sm toggle-btn" type="button" data-bs-toggle="collapse" data-bs-target="#moreText5">Read more</button>
         </div>
       </section>
@@ -155,6 +152,9 @@ document.querySelectorAll('.toggle-btn').forEach(btn => {
   });
 });
 </script>
+
+<!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
 
 </body>
 </html>

@@ -13,7 +13,7 @@ if (!isset($_SESSION['staff_id'])) {
     header("Location: staff-login.php");
     exit();
 }
-
+ 
 $fullName = $_SESSION['full_name'] ?? 'Staff';
 $userId = $_SESSION['staff_id'] ?? '';
 $profilePicture = $_SESSION['profile_picture_path'] ?? 'default.png';
@@ -29,7 +29,7 @@ $brokerageServiceId = $brokerageServiceStmt->fetchColumn();
 
 // Fetch all brokerage-claimed properties (joined to necessary related info)
 $stmt = $pdo->prepare("
-    SELECT cc.*, u.full_name AS client_name, p.property_name, p.location, p.price, p.listing_type,
+    SELECT cc.*, u.full_name AS client_name, p.property_name, p.location, p.price, p.listing_type, p.request_id AS request_id,
            bcp.confirmed_by
     FROM client_claims cc
     JOIN clients cl ON cc.client_id = cl.client_id
@@ -43,13 +43,51 @@ $stmt = $pdo->prepare("
 $stmt->execute([$brokerageServiceId]);
 $claims_brokerage = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+function getAvailableAgentSlots($pdo, $agentId, $slotMinutes = 120, $daysAhead = 7) {
+    $slots = [];
+    $startHour = 9;  // 9 AM
+    $endHour = 19;   // 7 PM
+    $now = new DateTime();
+    $today = clone $now;
+    $today->setTime($startHour, 0);
+
+    for ($d = 0; $d < $daysAhead; $d++) {
+        $date = clone $today;
+        $date->modify("+$d day");
+        for ($h = $startHour; $h <= $endHour - ($slotMinutes / 60); $h++) {
+            $slotStart = clone $date;
+            $slotStart->setTime($h, 0);
+            $slotEnd = clone $slotStart;
+            $slotEnd->modify("+$slotMinutes minutes");
+
+            // Check for overlaps in agent_schedule
+            $stmt = $pdo->prepare("
+                SELECT COUNT(*) FROM agent_schedule
+                WHERE agent_id = ? AND status = 'booked'
+                AND (
+                    (start_time < ? AND end_time > ?) -- overlap
+                )
+            ");
+            $stmt->execute([$agentId, $slotEnd->format('Y-m-d H:i:s'), $slotStart->format('Y-m-d H:i:s')]);
+            $overlap = $stmt->fetchColumn();
+            if (!$overlap && $slotStart > $now) {
+                $slots[] = [
+                    'start' => $slotStart->format('Y-m-d H:i:s'),
+                    'end' => $slotEnd->format('Y-m-d H:i:s'),
+                ];
+            }
+        }
+    }
+    return $slots;
+}
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Brokerage Claimed Properties</title>
+    <title>Brokerage Reserved Properties</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-4Q6Gf2aSP4eDXB8Miphtr37CMZZQ5oXLH2yaXMJ2w8e2ZtHTl7GptT4jmndRuHDT" crossorigin="anonymous">
     <link rel="stylesheet" href="styles.css?v=<?= time() ?>">
 </head>
@@ -60,7 +98,7 @@ $claims_brokerage = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <div class="row">
         <main class="p-3">
             <div class="mb-4 p-3 border rounded shadow-sm main-title">
-                <h2>Brokerage Claimed Properties</h2>
+                <h2>Brokerage Reserved Properties</h2>
             </div>
 
             <!-- Claimed Properties Table -->
@@ -72,8 +110,7 @@ $claims_brokerage = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <th>Property</th>
                         <th>Type</th>
                         <th>Payment</th>
-                        <th>Meeting</th>
-                        <th>Agent</th>
+                        <th>Client - Owner Meeting</th>
                         <th>Report</th>
                         <th>Action</th>
                     </tr>
@@ -96,40 +133,66 @@ $claims_brokerage = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             <?php endif; ?>
                         </td>
                         <!-- Meeting scheduling or display -->
-                        <td>
-                            <?php if ($claim['meeting_datetime']): ?>
-                                <?= date('Y-m-d H:i', strtotime($claim['meeting_datetime'])) ?>
-                            <?php elseif ($claim['confirmed_by']): ?>
-                                <!-- Allow setting meeting after payment is confirmed -->
-                                <form method="post" action="submit-claim-updates.php" class="d-flex flex-column gap-2">
-                                    <input type="hidden" name="claim_id" value="<?= $claim['claim_id'] ?>">
-                                    <div class="input-group input-group-sm mb-1">
-                                        <input type="datetime-local" name="meeting_datetime" class="form-control" required>
-                                    </div>
-                                    <select name="meeting_agent_id" class="form-select form-select-sm mb-1" required>
-                                        <option value="">Select Agent</option>
-                                        <?php foreach ($agents as $agent): ?>
-                                            <option value="<?= $agent['staff_id'] ?>"><?= htmlspecialchars($agent['full_name']) ?></option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                    <button type="submit" name="set_meeting_agent" value="1" class="btn btn-sm custom-btn">Set Meeting</button>
-                                </form>
-                            <?php else: ?>
-                                <span class="text-muted">Awaiting payment</span>
-                            <?php endif; ?>
-                        </td>
-                        <!-- Meeting agent name -->
-                        <td>
-                            <?php
-                            if ($claim['meeting_agent_id']) {
-                                $agentNameStmt = $pdo->prepare("SELECT full_name FROM staff WHERE staff_id = ?");
-                                $agentNameStmt->execute([$claim['meeting_agent_id']]);
-                                echo htmlspecialchars($agentNameStmt->fetchColumn());
-                            } else {
-                                echo '<span class="text-muted">Pending</span>';
-                            }
-                            ?>
-                        </td>
+<td>
+    <?php
+    // Fetch inspection agent for this property (default meeting agent)
+    $inspectionAgentStmt = $pdo->prepare("
+        SELECT assigned_agent_id FROM owner_service_requests WHERE request_id = ? LIMIT 1
+    ");
+    $inspectionAgentStmt->execute([$claim['request_id']]);
+    $inspectionAgentId = $inspectionAgentStmt->fetchColumn();
+
+    // Which agent to display?
+    $displayAgentId = $claim['meeting_agent_id'] ?: $inspectionAgentId;
+    $agentName = '';
+    if ($displayAgentId) {
+        $nameStmt = $pdo->prepare("SELECT full_name FROM staff WHERE staff_id = ?");
+        $nameStmt->execute([$displayAgentId]);
+        $agentName = $nameStmt->fetchColumn();
+    }
+
+    // Fetch available agent slots if agent assigned and no meeting yet
+    $agentSlots = [];
+    if ($inspectionAgentId && !$claim['meeting_datetime'] && $claim['confirmed_by']) {
+        $agentSlots = getAvailableAgentSlots($pdo, $inspectionAgentId, 120, 7);
+    }
+    ?>
+
+    <?php if ($claim['meeting_datetime']): ?>
+        <div>
+            <span class="fw-semibold"><?= date('Y-m-d H:i', strtotime($claim['meeting_datetime'])) ?></span>
+            <br>
+            <span class="text-muted small"><?= $agentName ? 'Agent: ' . htmlspecialchars($agentName) : 'Agent: Pending' ?></span>
+        </div>
+    <?php elseif ($claim['confirmed_by'] && $inspectionAgentId): ?>
+        <form method="post" action="submit-claim-updates.php" class="d-flex flex-column gap-2">
+            <input type="hidden" name="claim_id" value="<?= $claim['claim_id'] ?>">
+            <input type="hidden" name="meeting_agent_id" value="<?= $inspectionAgentId ?>">
+            <div class="mb-1 small text-muted">
+                Agent: <strong><?= htmlspecialchars($agentName) ?></strong>
+            </div>
+            <select name="meeting_datetime" class="form-select form-select-sm mb-1" required>
+                <option value="">Select Available Slot</option>
+                <?php foreach ($agentSlots as $slot): ?>
+                <option value="<?= htmlspecialchars($slot['start']) ?>">
+                    <?= date('D, M j Y, H:i', strtotime($slot['start'])) ?> -
+                    <?= date('H:i', strtotime($slot['end'])) ?>
+                </option>
+                <?php endforeach; ?>
+                <?php if (empty($agentSlots)): ?>
+                <option disabled>No available slots</option>
+                <?php endif; ?>
+            </select>
+            <button type="submit" name="set_meeting_agent" value="1" class="btn btn-sm custom-btn" <?= empty($agentSlots) ? 'disabled' : '' ?>>Set Meeting</button>
+        </form>
+    <?php elseif (!$claim['confirmed_by']): ?>
+        <span class="text-muted">Awaiting payment</span>
+    <?php else: ?>
+        <span class="text-muted">No agent assigned yet</span>
+    <?php endif; ?>
+</td>
+
+
                         <!-- Meeting report (view only if uploaded) -->
                         <td>
                             <?php if ($claim['meeting_report_path']): ?>
@@ -166,5 +229,8 @@ $claims_brokerage = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 <?php include 'footer.php'; ?>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js" integrity="sha384-j1CDi7MgGQ12Z7Qab0qlWQ/Qqz24Gc6BM0thvEMVjHnfYGF0rmFCozFSxQBxwHKO" crossorigin="anonymous"></script>
+
+<!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
 </body>
 </html>

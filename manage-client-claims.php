@@ -34,11 +34,12 @@ $profilePicture = $_SESSION['profile_picture_path'] ?? '';
 
 // Fetch all client claims with client and property info
 $claims = $pdo->query("
-    SELECT cc.*, u.full_name AS client_name, p.property_name, p.image
+    SELECT cc.*, u.full_name AS client_name, p.property_name, p.image, rcp.payment_proof
     FROM client_claims cc
     JOIN clients c ON cc.client_id = c.client_id
     JOIN users u ON c.user_id = u.user_id
     JOIN properties p ON cc.property_id = p.property_id 
+    JOIN rental_claim_payments rcp ON rcp.claim_id = cc.claim_id WHERE payment_type = 'claim'
     ORDER BY cc.claimed_at DESC
 ")->fetchAll(PDO::FETCH_ASSOC);
 ?>
@@ -46,12 +47,12 @@ $claims = $pdo->query("
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Manage Client Claims</title>
+  <meta charset="UTF-8">  
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <!-- Uniform Bootstrap version and CSS -->
-  <link rel="stylesheet" href="styles.css?v=<?= time() ?>">
+  <title>Manage Client Reservations</title>
+  <!-- Uniform Bootstrap version and CSS -->  
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=<?= time() ?>">
 </head>
 <body class="d-flex flex-column min-vh-100 bg-light">
 
@@ -74,7 +75,7 @@ $claims = $pdo->query("
                 <a href="edit-staff-profile.php" class="btn btn-sm btn-outline-secondary mt-2 w-100">Edit Profile</a>
                 <a href="staff-logout.php" class="btn btn-sm btn-outline-danger mt-2 w-100">Logout</a>
             </div>
-            <!-- Optional calendar widget (can be removed if not needed) -->
+            <!--  calendar widget -->
             <div class="p-3 d-none d-md-block">
                 <h6>Calendar</h6>
                 <iframe src="https://calendar.google.com/calendar/embed?mode=MONTH" style="border: 0; width: 100%; height: 200px;" frameborder="0" scrolling="no"></iframe>
@@ -83,10 +84,10 @@ $claims = $pdo->query("
 
         <!-- Main content area -->
         <main class="col-md-10 p-4">
-            <h2 class="mb-4 text-primary">Manage Property Claims</h2>
+            <h2 class="mb-4 text-primary">Manage Client reserved Propertied</h2>
 
             <?php if (isset($_GET['confirmed'])): ?>
-                <div class="alert alert-success">Claim payment has been confirmed.</div>
+                <div class="alert alert-success">Reservation payment has been confirmed.</div>
             <?php endif; ?>
 
             <?php if ($claims): ?>
@@ -96,9 +97,9 @@ $claims = $pdo->query("
                             <tr>
                                 <th>Client</th>
                                 <th>Property</th>
-                                <th>Claim Type</th>
+                                <th>Reservation Type</th>
                                 <th>Payment Proof</th>
-                                <th>Claimed At</th>
+                                <th>Reserved At</th>
                                 <th>Status</th>
                                 <th>Action</th>
                             </tr>
@@ -137,7 +138,7 @@ $claims = $pdo->query("
                     </table>
                 </div>
             <?php else: ?>
-                <p>No claims submitted yet.</p>
+                <p>No reserved properties submitted yet.</p>
             <?php endif; ?>
         </main>
     </div>
@@ -146,5 +147,9 @@ $claims = $pdo->query("
 <?php include 'footer.php'; ?>
 <!-- Bootstrap JS for responsiveness -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
+
 </body>
 </html>

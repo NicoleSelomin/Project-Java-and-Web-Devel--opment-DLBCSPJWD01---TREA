@@ -104,9 +104,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Review Client Visit</title>
+    <meta charset="UTF-8">    
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Review Client Visit</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css?v=<?= time() ?>">
 </head>
@@ -149,16 +149,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="invalid-feedback">Please select an option.</div>
             </div>
             <div class="mb-3">
-                <label for="rejection_reason" class="form-label">Rejection Reason (if any)</label>
+                <label for="rejection_reason" class="form-label">Feedback</label>
                 <textarea class="form-control" name="rejection_reason" id="rejection_reason" rows="4"></textarea>
             </div>
             <div class="d-flex gap-3">
-                <button type="submit" class="btn btn-primary">Submit Decision</button>
-                <a href="manage-client-visits.php" class="btn btn-secondary">Cancel</a>
+                <button type="submit" class="btn custom-btn">Submit Decision</button>
+                <a href="manage-client-visits.php" class="btn btn-outline-danger">Cancel</a>
             </div>
         </form>
         <div class="mt-4">
-            <a href="staff-profile.php" class="btn btn-outline-dark">Back to Profile</a>
+            <a href="staff-profile.php" class="btn btn-dark">Back to Profile</a>
         </div>
     </main>
 </div>
@@ -181,5 +181,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     });
 })();
 </script>
+
+<!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
 </body>
 </html>

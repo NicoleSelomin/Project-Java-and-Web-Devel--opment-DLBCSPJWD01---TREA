@@ -14,50 +14,39 @@
 session_start();
 require 'db_connect.php';
 
-// Get property ID from GET params and validate as integer
-$property_id = intval($_GET['id'] ?? 0);
-if (!$property_id) {
-    header("Location: index.php");
+header('Content-Type: application/json');
+
+// Helper: respond as JSON and exit
+function respond($success, $msg = '', $extra = []) {
+    echo json_encode(array_merge(['success'=>$success, 'message'=>$msg], $extra));
     exit();
 }
 
-// 1. Check if property is available before adding to cart
+// Get property ID
+$property_id = intval($_GET['id'] ?? 0);
+if (!$property_id) respond(false, "Invalid property.");
+
+// 1. Check property exists and is available
 $stmt = $pdo->prepare("SELECT * FROM properties WHERE property_id = ? AND availability = 'available'");
 $stmt->execute([$property_id]);
 $property = $stmt->fetch();
+if (!$property) respond(false, "Property is no longer available.");
 
-if (!$property) {
-    // Stop if property does not exist or is unavailable
-    exit("This property is no longer available.");
-}
-
-// 2. If client is logged in, add property to database cart
+// 2. Client cart logic
 if (isset($_SESSION['client_id'])) {
     require_once 'check-user-session.php';
     $client_id = $_SESSION['client_id'];
-
-    // Check if property is already in client's cart
     $stmt = $pdo->prepare("SELECT 1 FROM client_cart WHERE client_id = ? AND property_id = ?");
     $stmt->execute([$client_id, $property_id]);
-
-    // If not in cart, insert into client_cart table
-    if (!$stmt->fetch()) {
-        $insert = $pdo->prepare("INSERT INTO client_cart (client_id, property_id) VALUES (?, ?)");
-        $insert->execute([$client_id, $property_id]);
-    }
+    if ($stmt->fetch()) respond(false, "Already in cart.");
+    $insert = $pdo->prepare("INSERT INTO client_cart (client_id, property_id) VALUES (?, ?)");
+    $insert->execute([$client_id, $property_id]);
+    respond(true, "Added to cart!");
 } else {
-    // 3. If guest (not logged in), use session cart array
-    if (!isset($_SESSION['cart'])) {
-        $_SESSION['cart'] = [];
-    }
-
-    // Only add if not already in the session cart
-    if (!in_array($property_id, $_SESSION['cart'])) {
-        $_SESSION['cart'][] = $property_id;
-    }
+    // Guest cart (session)
+    if (!isset($_SESSION['cart'])) $_SESSION['cart'] = [];
+    if (in_array($property_id, $_SESSION['cart'])) respond(false, "Already in cart.");
+    $_SESSION['cart'][] = $property_id;
+    respond(true, "Added to cart!");
 }
-
-// 4. Redirect back to the previous page (HTTP referer)
-header("Location: " . $_SERVER['HTTP_REFERER']);
-exit();
 ?>

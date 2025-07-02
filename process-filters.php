@@ -20,40 +20,43 @@
 $filterConditions = [];
 $filterParams = [];
 
-// Handle keyword-based searches for property name or location
+// Handle keyword-based searches for property name, location, property type, or listing type
 if (!empty($_GET['search'])) {
-    $filterConditions[] = "(property_name LIKE ? OR location LIKE ?)";
+    $filterConditions[] = "(p.property_name LIKE ? OR p.location LIKE ? OR p.property_type LIKE ? OR p.listing_type LIKE ?)";
     $searchTerm = '%' . $_GET['search'] . '%';
+    // Add the search term 4 times for the 4 placeholders
+    $filterParams[] = $searchTerm;
+    $filterParams[] = $searchTerm;
     $filterParams[] = $searchTerm;
     $filterParams[] = $searchTerm;
 }
 
 // Filter by property type (e.g., apartment, house, etc.)
 if (!empty($_GET['property_type'])) {
-    $filterConditions[] = "property_type = ?";
+    $filterConditions[] = "p.property_type = ?";
     $filterParams[] = $_GET['property_type'];
 }
 
 // Filter by listing type (rent or sale)
 if (!empty($_GET['listing_type'])) {
-    $filterConditions[] = "listing_type = ?";
+    $filterConditions[] = "p.listing_type = ?";
     $filterParams[] = $_GET['listing_type'];
 }
 
 // Apply minimum price filter
 if (!empty($_GET['min_price'])) {
-    $filterConditions[] = "price >= ?";
+    $filterConditions[] = "p.price >= ?";
     $filterParams[] = $_GET['min_price'];
 }
 
 // Apply maximum price filter
 if (!empty($_GET['max_price'])) {
-    $filterConditions[] = "price <= ?";
+    $filterConditions[] = "p.price <= ?";
     $filterParams[] = $_GET['max_price'];
 }
 
 // Construct SQL WHERE clause from accumulated filters
-$whereSql = $filterConditions ? 'WHERE ' . implode(' AND ', $filterConditions) : '';
+$whereSql = $filterConditions ? ' AND ' . implode(' AND ', $filterConditions) : '';
 
 // Fetch properties only if the current page does not have custom fetch logic
 if (!isset($skipPropertyFetch) || !$skipPropertyFetch) {

@@ -21,8 +21,8 @@ session_start(); // Start session for user authentication
 
 require 'db_connect.php'; // Database connection
 
-// Only allow access for logged-in accountants
-if (!isset($_SESSION['staff_id']) || strtolower($_SESSION['role']) !== 'accountant') {
+// Only allow access for logged-in accountants and general manager
+if (!isset($_SESSION['staff_id']) || !in_array(strtolower($_SESSION['role']), ['accountant', 'general manager'])) {
     // Redirect to login if not authorized
     header("Location: staff-login.php");
     exit();

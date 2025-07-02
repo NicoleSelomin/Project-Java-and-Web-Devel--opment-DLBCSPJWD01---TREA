@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    .watermark { position: fixed; top: 40%; left: 30%; opacity: 0.1; font-size: 70px; color: #666; z-index: 0; pointer-events: none;}
+  </style>
+</head>
+<body>
+
+<!-- rental-management-agreement-template-en.html -->
+<h1>RENTAL PROPERTY MANAGEMENT AGREEMENT</h1><br>
+<p style="text-align:center; font-weight:bold;">
+    This Agreement is made between <strong>{{OWNER_NAME}}</strong> (“the Owner”) and <strong>{{AGENCY_NAME}}</strong> (“the Agency”), whereby the Owner appoints the Agency to manage the rental property located at <strong>{{LOCATION}}</strong>.
+</p>
+
+<h2>1. Parties</h2>
+<p>
+    <strong>Owner:</strong> {{OWNER_NAME}}<br>
+    Address: {{OWNER_ADDRESS}}<br>
+    Phone: {{PHONE_NUMBER}}<br>
+    Email: {{EMAIL}}<br>
+    <br>
+    <strong>Agency:</strong> {{AGENCY_NAME}}<br>
+    Address: {{AGENCY_ADDRESS}}<br>
+    Represented by: {{MANAGER_NAME}}<br>
+    Phone: {{AGENCY_PHONE}}<br>
+    Email: {{AGENCY_EMAIL_ADDRESS}}
+</p><br><br>
+
+<div class="watermark">{{AGENCY_NAME}}</div>
+
+<h2>2. Property Description</h2>
+<p>
+    Type: {{PROPERTY_TYPE}}<br>
+    Address: {{LOCATION}}
+</p><br><br>
+
+<h2>3. Scope of Services</h2>
+<ul>
+    <li>Advertise and promote the property for rent.</li>
+    <li>Screen and select suitable tenants.</li>
+    <li>Collect rent and deposits on behalf of the Owner.</li>
+    <li>Oversee property maintenance and repairs.</li>
+    <li>Handle tenant communications and complaints.</li>
+    <li>Remit collected rents to the Owner after deducting management fees and any authorized expenses.</li>
+</ul><br><br>
+
+<h2>4. Agency Fee</h2>
+<p>
+    The Owner agrees to pay the Agency a management fee of <strong>{{AGENCY_FEE}}</strong> (e.g., 10% of collected rent), deducted monthly from rental payments received.
+</p><br><br>
+
+<h2>5. Owner's Responsibilities</h2>
+<ul>
+    <li>Provide all necessary documents proving ownership of the property.</li>
+    <li>Maintain property insurance and pay all applicable taxes not handled by the Agency.</li>
+    <li>Approve necessary repairs above {{REPAIR_APPROVAL_LIMIT}}.</li>
+</ul><br><br>
+
+<h2>6. Duration</h2>
+<p>
+    This Agreement is valid for <strong>{{CONTRACT_DURATION}}</strong>, starting <strong>{{CONTRACT_START_DATE}}</strong>, and may be renewed or terminated by either party with {{NOTICE_PERIOD}} notice.
+</p><br><br>
+
+<h2>7. General Terms</h2>
+<ul>
+    <li>Both parties agree to act in good faith.</li>
+    <li>This Agreement is governed by the laws of {{LOCATION}}.</li>
+</ul>
+
+<p>
+    Signed at {{SIGNING_LOCATION}} on <strong>{{CONTRACT_SIGNING_DATE}}</strong>.
+</p>
+
+<div class="row mt-5">
+  <div class="col-md-6 text-center">
+    <p><strong>Owner</strong></p>
+    <div style="border:1px solid #888; height:100px;">{{OWNER_SIGNATURE_BLOCK}}</div>
+    <p class="mt-2">{{OWNER_NAME}}</p>
+  </div><br><br>
+  <div class="col-md-6 text-center">
+    <p><strong>Agency</strong></p>
+    <div style="border:1px solid #888; height:100px;">{{AGENCY_SIGNATURE_BLOCK}}</div>
+    <p class="mt-2">{{AGENCY_NAME}}</p>
+  </div>
+</div>

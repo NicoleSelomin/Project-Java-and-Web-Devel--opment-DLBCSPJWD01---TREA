@@ -23,31 +23,31 @@ include 'header.php';
 <div class="container-fluid">
   <div class="row">
     <!-- Responsive Sidebar (mobile collapses, always visible on desktop) -->
-    <aside class="col-12 col-md-3 mb-3">
+    <aside class="col-12 col-md-2 bg-light mb-3 mb-md-0">
       <button class="btn btn-sm d-md-none mb-3 custom-btn" type="button" data-bs-toggle="collapse" data-bs-target="#sidebarCollapse" aria-expanded="false" aria-controls="sidebarCollapse">
         Open Sidebar
       </button>
       <div class="collapse d-md-block" id="sidebarCollapse">
         <div class="sidebar text-center bg-primary p-3 rounded shadow-sm">
           <h5 class="text-white">Shop your ideal property like you shop for your favorite food.</h5>
-          <img src="about-us-image.png" alt="TREA About Us" class="mb-3 img-fluid rounded">
+          <img src="images/sidebar.png" alt="TREA About Us" class="mb-3 img-fluid rounded">
           <p class="text-white small">Your trusted real estate agents—here to provide you only with the best and most affordable properties.</p>
         </div>
       </div>
     </aside>
 
     <!-- Main Content: News Feed -->
-    <main class="col-12 col-md-9">
+    <main class="col-12 col-md-9 ms-lg-5">
       <!-- Page Title and Intro -->
-      <div class="mb-4 p-3 border rounded shadow-sm main-title bg-white">
+      <div class="mb-4 p-3 border rounded shadow-sm main-title">
         <h2 class="fw-bold text-dark">Real Estate News and Updates</h2>
         <p>Stay informed with the latest developments in the real estate world, updates from our agency, and legal changes that may affect your properties.</p>
       </div>
 
       <!-- News Article 1 -->
-      <section class="mb-4 p-3 border rounded shadow-sm bg-white">
+      <section class="mb-4 p-3 border rounded shadow-sm">
         <article class="news-item">
-          <h3 class="h5">New Property Tax Laws Enacted in 2025</h3>
+          <h3 class="text-bold">New Property Tax Laws Enacted in 2025</h3>
           <p>
             The government has introduced revised property tax laws aimed at
             <span id="moreText1" class="collapse"> regulating urban expansion. Owners must now register all properties for taxation by July 2025.</span>
@@ -61,9 +61,9 @@ include 'header.php';
       </section>
 
       <!-- News Article 2 -->
-      <section class="mb-4 p-3 border rounded shadow-sm bg-white">
+      <section class="mb-4 p-3 border rounded shadow-sm">
         <article class="news-item">
-          <h3 class="h5">TREA Launches Online Property Registration System</h3>
+          <h3 class="text-bold">TREA Launches Online Property Registration System</h3>
           <p>
             Trusted Real Estate Agency now allows property owners to submit
             <span id="moreText2" class="collapse"> registration applications online. This improves processing speed and user convenience.</span>
@@ -76,9 +76,9 @@ include 'header.php';
       </section>
 
       <!-- News Article 3 -->
-      <section class="mb-4 p-3 border rounded shadow-sm bg-white">
+      <section class="mb-4 p-3 border rounded shadow-s">
         <article class="news-item">
-          <h3 class="h5">Construction Permit Reforms Benefit New Home Builders</h3>
+          <h3 class="text-bold">Construction Permit Reforms Benefit New Home Builders</h3>
           <p>
             The Ministry of Housing has simplified the process of obtaining building permits,
             <span id="moreText3" class="collapse"> cutting wait times by 40% and easing document requirements for small projects.</span>
@@ -115,5 +115,9 @@ include 'footer.php';
     });
   });
 </script>
+
+<!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
+
 </body>
 </html>

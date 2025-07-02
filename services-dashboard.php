@@ -66,24 +66,36 @@ $profilePicturePath = (!empty($staff['profile_picture']) && file_exists($staff['
 
 <div class="container-fluid flex-grow-1">
     <div class="row">
-        <!-- Sidebar -->
-        <aside class="col-12 col-md-3 mb-3">
-            <button class="btn btn-sm d-md-none mb-3 custom-btn" type="button" data-bs-toggle="collapse" data-bs-target="#sidebarCollapse" aria-expanded="false" aria-controls="sidebarCollapse">
+        <!-- Sidebar (collapsible on mobile) -->
+        <nav class="col-12 col-md-3 mb-4 mb-md-0">
+            <!-- Mobile collapse toggle (hidden on md+) -->
+            <button class="btn btn-outline-secondary btn-sm d-md-none mb-3 w-100 custom-btn"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#sidebarMenu"
+                aria-expanded="false"
+                aria-controls="sidebarMenu">
                 Menu
             </button>
-            <div class="collapse d-md-block" id="sidebarCollapse">
-                <div class="sidebar text-center py-3 px-2 border bg-white rounded shadow-sm">
-                    <div class="profile-summary mb-4">
-                        <img src="<?= htmlspecialchars($profilePicturePath) ?>" alt="Profile Picture" class="rounded-circle mb-2" width="80" height="80">
-                        <div><strong><?= htmlspecialchars($fullName) ?></strong></div>
-                        <small class="text-muted">ID: <?= htmlspecialchars($userId) ?></small>
+            <div class="collapse d-md-block" id="sidebarMenu">
+                <div class="bg-white rounded shadow-sm py-4 px-3">
+                    <!-- Profile Image and Summary -->
+                    <div class="text-center mb-4">
+                        <img src="<?= htmlspecialchars($profilePicturePath) ?>" 
+                             alt="Profile Picture"
+                             class="rounded-circle mb-3"
+                             style="width:110px; height:110px; object-fit:cover; border:2px solid #e9ecef;">
+                        <div class="fw-semibold"><?= htmlspecialchars($fullName) ?></div>
+                        <div class="text-muted small mb-2">Staff ID: <?= htmlspecialchars($userId) ?></div>
+                        <!-- Profile Actions -->
+                        <a href="notifications.php" class="btn btn-outline-primary btn-sm w-100 mb-2 profile-btn" style="background-color: #FF6EC7;">Notifications🔔</a>
+                        <a href="edit-staff-profile.php" class="btn btn-outline-secondary btn-sm w-100 mb-2 profile-btn" style="background-color: #E021BA;">Edit Profile</a>
+                        <a href="staff-logout.php" class="btn btn-outline-danger btn-sm w-100 profile-btn" style="background-color: #C154C1;">Logout</a>
                     </div>
-                    <a href="notifications.php" class="btn btn-outline-secondary w-100 mb-2">View Notifications</a>
-                    <a href="edit-staff-profile.php" class="btn btn-outline-secondary w-100 mb-2">Edit Profile</a>
-                    <a href="staff-logout.php" class="btn btn-outline-danger w-100">Logout</a>
                 </div>
             </div>
-        </aside>
+        </nav>
+        <!-- End Sidebar -->
 
         <!-- Main Content -->
         <main class="col-12 col-md-9">
@@ -105,7 +117,7 @@ $profilePicturePath = (!empty($staff['profile_picture']) && file_exists($staff['
                                 <label for="description" class="form-label">Description <span class="text-danger">*</span></label>
                                 <textarea name="description" id="description" rows="4" class="form-control" required></textarea>
                             </div>
-                            <button type="submit" class="btn btn-primary">Add Service</button>
+                            <button type="submit" class="btn custom-btn">Add Service</button>
                         </form>
                     </div>
                 </div>
@@ -137,7 +149,7 @@ $profilePicturePath = (!empty($staff['profile_picture']) && file_exists($staff['
                                                 <td><?= htmlspecialchars($row['service_id']) ?></td>
                                                 <td><?= htmlspecialchars($row['service_name']) ?></td>
                                                 <td><?= htmlspecialchars($row['description']) ?></td>
-                                                <td class="text-center">
+                                                <td class="text-center d-flex">
                                                     <a href="edit-service.php?id=<?= $row['service_id'] ?>" class="btn btn-sm btn-outline-primary me-2">Edit</a>
                                                     <a href="delete-service.php?id=<?= $row['service_id'] ?>" onclick="return confirm('Delete this service?');" class="btn btn-sm btn-outline-danger">Delete</a>
                                                 </td>
@@ -171,11 +183,17 @@ $profilePicturePath = (!empty($staff['profile_picture']) && file_exists($staff['
                     </div>
                 </div>
             </section>
+
+            <a href="staff-profile.php" class="btn bg-dark text-white fw-bold">🡰 Back to dashboard</a>
         </main>
     </div>
 </div>
 
 <?php include 'footer.php'; ?>
+
+<!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

@@ -8,7 +8,7 @@
     $info = $data['info'];
     $payments = $data['payments'];
 ?>
-<div class="card mb-4">
+<div class="card mb-4 shadow-sm">
     <div class="card-header bg-light d-flex align-items-center justify-content-between">
         <div class="d-flex align-items-center">
             <?php if ($info['image']): ?>
@@ -16,8 +16,8 @@
             <?php endif; ?>
             <div>
                 <h5 class="mb-0"><?= htmlspecialchars($info['property_name']) ?></h5>
-                <small class="text-muted"><?= htmlspecialchars($info['location']) ?></small>
-                <a href="view-property.php?property_id=<?= $info['property_id'] ?>" class="btn btn-outline-primary btn-sm">View Property</a>
+                <small class="text-muted"><?= htmlspecialchars($info['location']) ?></small><br>
+                <a href="view-property.php?property_id=<?= $info['property_id'] ?>" class="btn btn-outline-primary btn-sm mt-1">View Property</a>
             </div>
         </div>
     </div>
@@ -27,51 +27,74 @@
         <h6>Claim & Deposit Payments</h6>
         <div class="table-responsive">
             <table class="table table-bordered table-sm">
-                <thead>
+                <thead class="table-light">
                     <tr>
                         <th>Type</th>
-                        <th>Invoice</th>
-                        <th>Proof</th>
-                        <th>Action</th>
+                        <th>Agency Invoice</th>
+                        <th>Client Proof</th>
                         <th>Status</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
                 <?php foreach ($payments as $pay): ?>
-                    <tr>
-                        <td><?= ucfirst($pay['payment_type']) ?></td>
+    <tr>
+        <td><?= ucfirst($pay['payment_type']) ?></td>
+        <!-- INVOICE COLUMN -->
+        <td>
+<?php if ($pay['payment_type'] === 'deposit'): ?>
+    <?php $canEditDepositInvoice = ($data['initial_report_status'] === 'fully_signed'); ?>
+    <?php if (!$canEditDepositInvoice): ?>
+        <button class="btn btn-sm btn-outline-danger" disabled>Initial Report Not Yet Fully Signed</button>
+    <?php elseif (!empty($pay['invoice_path']) && file_exists($pay['invoice_path']) && filesize($pay['invoice_path']) > 0): ?>
+        <a href="<?= htmlspecialchars($pay['invoice_path']) ?>" target="_blank">
+            View Deposit Invoice
+        </a>
+    <?php else: ?>
+        <a href="edit-invoice.php?request_id=<?= $info['claim_id'] ?>&type=deposit" class="btn btn-sm custom-btn">
+            Edit/Upload Deposit Invoice
+        </a>
+    <?php endif; ?>
+<?php else: ?>
+
+                <!-- for 'claim' or other payment types, your usual invoice display logic -->
+                <?php if ($pay['invoice_path']): ?>
+                    <a href="<?= htmlspecialchars($pay['invoice_path']) ?>" target="_blank">View Invoice</a>
+                <?php else: ?>
+                    <span class="text-muted">No Invoice</span>
+                <?php endif; ?>
+            <?php endif; ?>
+        </td>
+
+
+                        <!-- PROOF -->
                         <td>
-                            <?php if ($pay['invoice_path']): ?>
-                                <a href="<?= $pay['invoice_path'] ?>" target="_blank">Invoice</a>
-                            <?php elseif (($pay['payment_type'] === 'claim') || ($pay['payment_type'] === 'deposit' && $info['meeting_report_path'])): ?>
-                                <form method="POST" action="confirm-rental-claim-payments.php" enctype="multipart/form-data">
-                                    <input type="hidden" name="payment_id" value="<?= $pay['payment_id'] ?>">
-                                    <input type="file" name="invoice_file" required class="form-control form-control-sm">
-                                    <button class="btn btn-sm btn-secondary mt-1">Upload</button>
-                                </form>
-                            <?php else: ?>
-                                <span class="text-muted">Not Uploaded</span>
-                            <?php endif; ?>
+                            <?= $pay['payment_proof'] ? '<a href="'.htmlspecialchars($pay['payment_proof']).'" target="_blank">View</a>' : '<span class="text-muted">Awaiting</span>' ?>
                         </td>
+
+                        <!-- STATUS -->
                         <td>
-                            <?= $pay['payment_proof'] ? '<a href="'.$pay['payment_proof'].'" target="_blank">Proof</a>' : '<span class="text-muted">None</span>' ?>
+                            <?= $pay['payment_status'] === 'confirmed' 
+                                ? '<span class="badge bg-success">Confirmed</span>' 
+                                : '<span class="badge bg-warning text-dark">Pending</span>' ?>
                         </td>
+
+                        <!-- ACTION -->
                         <td>
-                            <?php if ($pay['payment_status'] === 'confirmed'): ?>
-                                <span class="text-success">Confirmed</span>
-                            <?php elseif (!empty($pay['invoice_path']) && !empty($pay['payment_proof'])): ?>
-                                <form method="POST" action="confirm-rental-claim-payments.php">
+                            <?php if (
+                                !empty($pay['invoice_path']) &&
+                                !empty($pay['payment_proof']) &&
+                                $pay['payment_status'] !== 'confirmed'
+                            ): ?>
+                                <form method="POST" action="confirm-rental-claim-payments.php" class="d-inline">
                                     <input type="hidden" name="payment_id" value="<?= $pay['payment_id'] ?>">
                                     <button class="btn btn-sm btn-success">Confirm</button>
                                 </form>
+                            <?php elseif ($pay['payment_status'] === 'confirmed'): ?>
+                                <i class="text-muted small">No action</i>
                             <?php else: ?>
-                                <span class="text-muted">Waiting for invoice & proof</span>
+                                <i class="text-muted small">Waiting on files</i>
                             <?php endif; ?>
-                        </td>
-                        <td>
-                            <?= $pay['payment_status'] === 'confirmed' 
-                                ? '<span class="text-success">Confirmed</span>' 
-                                : '<span class="text-warning">Pending</span>' ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>

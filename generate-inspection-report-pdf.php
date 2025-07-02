@@ -1,0 +1,138 @@
+<?php
+require_once 'libs/dompdf/autoload.inc.php';
+
+use Dompdf\Dompdf;
+use Dompdf\Options;
+
+function renderSignatureImg($sig) {
+    if (!$sig) return 'No signature';
+    $prefix = 'data:image/png;base64,';
+    if (strpos($sig, $prefix) === 0) $sig = substr($sig, strlen($prefix));
+    return '<img src="data:image/png;base64,' . $sig . '" height="60">';
+}
+
+function generateInspectionReportPDF($report_id, $pdo) {
+    // Fetch all report details
+    $report_stmt = $pdo->prepare("
+        SELECT ir.*, cc.property_id, cc.client_id, p.property_name, p.location,
+               u_c.full_name AS client_name, u_o.full_name AS owner_name
+        FROM inspection_reports ir
+        JOIN client_claims cc ON ir.claim_id = cc.claim_id
+        JOIN properties p ON cc.property_id = p.property_id
+        JOIN clients c ON cc.client_id = c.client_id
+        JOIN users u_c ON c.user_id = u_c.user_id
+        JOIN owners o ON p.owner_id = o.owner_id
+        JOIN users u_o ON o.user_id = u_o.user_id
+        WHERE ir.report_id = ?
+    ");
+    $report_stmt->execute([$report_id]);
+    $report = $report_stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$report) return false;
+
+    // Get items
+    $items_stmt = $pdo->prepare("SELECT * FROM inspection_report_items WHERE report_id = ? ORDER BY order_no ASC, item_id ASC");
+    $items_stmt->execute([$report_id]);
+    $item_rows = $items_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Get signatures (as base64 PNG for <img>)
+    $client_signature = $report['client_signature'] ?? null;
+    $owner_signature = $report['owner_signature'] ?? null;
+
+    // If signature does not start with data:image/png, add it
+    function sig_src($sig) {
+        if (!$sig) return null;
+        if (strpos($sig, 'data:image') === 0) return $sig;
+        return 'data:image/png;base64,' . $sig;
+    }
+
+    $property_id   = $report['property_id'];
+    $property_name = strtolower(preg_replace('/[^a-zA-Z0-9_\-]/', '_', $report['property_name']));
+    $client_id     = $report['client_id']; // Correct: get from claim, not from submitted_by
+    $client_name   = strtolower(preg_replace('/[^a-zA-Z0-9_\-]/', '_', $report['client_name']));
+    $type = $report['inspection_type'];
+    $folder = "uploads/clients/{$client_id}_{$client_name}/reserved_properties/{$property_id}_{$property_name}/";
+    if (!is_dir($folder)) mkdir($folder, 0777, true);
+    $file_name = $type === 'initial' ? 'initial_report.pdf' : 'final_report.pdf';
+    $pdf_path = $folder . $file_name;
+
+    // HTML for PDF
+    ob_start();
+    ?>
+    <h2 style="text-align:center;"><?= strtoupper($type) ?> INSPECTION REPORT</h2>
+    <p><strong>Date:</strong> <?= date('Y-m-d H:i', strtotime($report['submitted_at'])) ?></p>
+    <p>
+        <strong>Property:</strong> <?= htmlspecialchars($report['property_name']) ?> <br>
+        <strong>Location:</strong> <?= htmlspecialchars($report['location']) ?> <br>
+        <strong>Client:</strong> <?= htmlspecialchars($report['client_name']) ?> <br>
+        <strong>Owner:</strong> <?= htmlspecialchars($report['owner_name']) ?>
+    </p>
+    <h3>Inspection Details</h3>
+    <table border="1" cellpadding="5" cellspacing="0" width="100%">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Item/Room</th>
+                <th>Initial Condition</th>
+                <?php if ($type === 'final'): ?>
+                    <th>Condition After Client</th>
+                <?php endif; ?>
+            </tr>
+        </thead>
+        <tbody>
+            <?php foreach ($item_rows as $k => $item): ?>
+            <tr>
+                <td><?= $k+1 ?></td>
+                <td><?= htmlspecialchars($item['item_name']) ?></td>
+                <td><?= htmlspecialchars($item['initial_comment']) ?></td>
+                <?php if ($type === 'final'): ?>
+                    <td><?= htmlspecialchars($item['final_comment']) ?></td>
+                <?php endif; ?>
+            </tr>
+            <?php endforeach; ?>
+        </tbody>
+    </table>
+    <br>
+    <h3>Signatures</h3>
+    <table border="0" cellpadding="5" cellspacing="0" width="100%">
+        <tr>
+            <th>Client</th>
+            <th>Owner</th>
+        </tr>
+        <tr>
+            <td height="70" valign="middle" align="center">
+                <?php if ($client_signature): ?>
+                    <img src="<?= sig_src($client_signature) ?>" height="60">
+                <?php else: ?>
+                    <em>No signature</em>
+                <?php endif; ?>
+            </td>
+            <td height="70" valign="middle" align="center">
+                <?php if ($owner_signature): ?>
+                    <img src="<?= sig_src($owner_signature) ?>" height="60">
+                <?php else: ?>
+                    <em>No signature</em>
+                <?php endif; ?>
+            </td>
+        </tr>
+    </table>
+    <p style="color: #666; font-size: 11px; text-align:right;">Generated by TREA</p>
+    <?php
+    $html = ob_get_clean();
+
+    // Dompdf setup
+    $options = new Options();
+    $options->set('isRemoteEnabled', true);
+    $dompdf = new Dompdf($options);
+    $dompdf->loadHtml($html, 'UTF-8');
+    $dompdf->setPaper('A4', 'portrait');
+    $dompdf->render();
+
+    file_put_contents($pdf_path, $dompdf->output());
+
+    // Update pdf_path in DB (optional, for tracking)
+    $stmt = $pdo->prepare("UPDATE inspection_reports SET pdf_path = ? WHERE report_id = ?");
+    $stmt->execute([$pdf_path, $report_id]);
+
+    return $pdf_path;
+}
+?>

@@ -159,7 +159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <textarea name="report_text" id="report_text" class="form-control" rows="7" required><?= htmlspecialchars($_POST['report_text'] ?? '') ?></textarea>
                         </div>
                         <div class="d-flex gap-2">
-                            <button type="submit" class="btn btn-primary">Submit Report</button>
+                            <button type="submit" class="btn custom-btn">Submit Report</button>
                             <a href="agent-assignments.php" class="btn btn-outline-danger">Cancel</a>
                         </div>
                     </form>
@@ -171,5 +171,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <?php include 'footer.php'; ?>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+
+<!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
 </body>
 </html>

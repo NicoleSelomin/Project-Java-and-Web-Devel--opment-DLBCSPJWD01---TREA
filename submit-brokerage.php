@@ -40,7 +40,7 @@ $land_size            = trim($_POST['land_size'] ?? '');
 $brokerage_purpose    = trim($_POST['brokerage_purpose'] ?? '');
 $estimated_price      = floatval($_POST['estimated_price'] ?? 0);
 $reason_for_sale      = trim($_POST['reason_for_sale'] ?? '');
-$urgent_sale          = isset($_POST['urgent_sale']) ? 1 : 0;
+$urgent          = isset($_POST['urgent']) ? 1 : 0;
 $comments             = trim($_POST['comments'] ?? '');
 
 // 4. Validate required fields (server-side)
@@ -60,8 +60,8 @@ if (
 $stmt = $pdo->prepare("
     INSERT INTO owner_service_requests (
         owner_id, service_id, property_name, location, property_description,
-        number_of_bedrooms, number_of_bathrooms, floor_count, land_size, submitted_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        number_of_bedrooms, number_of_bathrooms, floor_count, land_size, urgent, submitted_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ");
 $stmt->execute([
     $owner_id,
@@ -73,6 +73,7 @@ $stmt->execute([
     $number_of_bathrooms,
     $floor_count,
     $land_size,
+    $urgent,
     $submitted_at
 ]);
 
@@ -99,20 +100,19 @@ $update = $pdo->prepare("
 ");
 $update->execute([$base, $additional_json, $request_id]);
 
-// 9. Insert details into brokerage_details table
+// 9. Insert details into brokerage_details table 
 $stmt2 = $pdo->prepare("
     INSERT INTO brokerage_details (
         request_id, property_type, brokerage_purpose,
-        estimated_price, reason_for_sale, urgent_sale, comments, site_image_path
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        estimated_price, reason_for_sale, comments, site_image_path
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
 ");
 $stmt2->execute([
     $request_id,
     $property_type,
     $brokerage_purpose,
     $estimated_price,
-    $reason_for_sale,
-    $urgent_sale,
+    $reason_for_sale,    
     $comments,
     $site_image_path
 ]);

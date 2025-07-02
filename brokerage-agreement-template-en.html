@@ -1,0 +1,80 @@
+<!-- brokerage-agreement-template-en.html -->
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 15px; }
+    .watermark { position: fixed; top: 40%; left: 30%; opacity: 0.08; font-size: 70px; color: #C154C1; z-index: 0; pointer-events: none;}
+  </style>
+</head>
+
+<h1>BROKERAGE AGREEMENT</h1>
+<p style="text-align:center; font-weight:bold;">
+    This Agreement is made between <strong>{{OWNER_NAME}}</strong> (“the Owner”) and <strong>{{AGENCY_NAME}}</strong> (“the Agency”), for the purpose of engaging the Agency to act as a broker for the sale or rental of the Owner's property located at <strong>{{LOCATION}}</strong>.
+</p>
+
+<h2>1. Parties</h2>
+<p>
+    <strong>Owner:</strong> {{OWNER_NAME}}<br>
+    Address: {{OWNER_ADDRESS}}<br>
+    Phone: {{PHONE_NUMBER}}<br>
+    Email: {{EMAIL}}<br>
+    <br>
+    <strong>Agency:</strong> {{AGENCY_NAME}}<br>
+    Address: {{AGENCY_ADDRESS}}<br>
+    Represented by: {{MANAGER_NAME}}<br>
+    Phone: {{AGENCY_PHONE}}<br>
+    Email: {{AGENCY_EMAIL_ADDRESS}}
+</p>
+
+<div class="watermark">{{AGENCY_NAME}}</div>
+
+<h2>2. Property Description</h2>
+<p>
+    Type: {{PROPERTY_TYPE}}<br>
+    Address: {{LOCATION}}
+</p>
+
+<h2>3. Scope of Services</h2>
+<ul>
+    <li>The Agency will market the property and introduce prospective buyers or tenants to the Owner.</li>
+    <li>The Agency does not manage the property, but solely acts as an intermediary to facilitate a sale or rental.</li>
+    <li>The Owner authorizes the Agency to advertise and show the property to interested parties.</li>
+</ul>
+
+<h2>4. Agency Fee</h2>
+<p>
+    The Owner agrees to pay the Agency a commission of <strong>{{AGENCY_COMMISSION}}</strong> (e.g., 5% of the sale price or one month’s rent) for any transaction concluded as a result of the Agency’s introduction.<br>
+    The commission shall be due and payable upon the signing of the sale/rental agreement with the client.
+</p>
+
+<h2>5. Duration</h2>
+<p>
+    This Agreement is valid for <strong>{{CONTRACT_DURATION}}</strong> from the date signed, and may be renewed or terminated by either party upon {{NOTICE_PERIOD}} written notice.
+</p>
+
+<h2>6. General Terms</h2>
+<ul>
+    <li>Both parties agree to act in good faith.</li>
+    <li>All information provided must be accurate and up-to-date.</li>
+    <li>This Agreement is governed by the laws of {{LOCATION}}.</li>
+</ul>
+
+<p>
+    Signed at {{SIGNING_LOCATION}} on <strong>{{CONTRACT_SIGNING_DATE}}</strong>.
+</p>
+
+<div class="row mt-5">
+  <div class="col-md-6 text-center">
+    <p><strong>Owner</strong></p>
+    <div style="border:1px solid #888; height:100px;">{{OWNER_SIGNATURE_BLOCK}}</div>
+    <p class="mt-2">{{OWNER_NAME}}</p>
+  </div>
+  <div class="col-md-6 text-center">
+    <p><strong>Agency</strong></p>
+    <div style="border:1px solid #888; height:100px;">{{AGENCY_SIGNATURE_BLOCK}}</div>
+    <p class="mt-2">{{AGENCY_NAME}}</p>
+  </div>
+</div>

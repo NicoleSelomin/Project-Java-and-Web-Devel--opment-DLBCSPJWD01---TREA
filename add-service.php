@@ -3,12 +3,12 @@
 |--------------------------------------------------------------------------
 | add-service.php
 |--------------------------------------------------------------------------
-| Handles submission of new services for the TREA platform.
-| Receives POST data, generates slug, inserts into `services` table,
+| Handles registration of new services
+| Receives POST data, generates slug, and inserts into the `services` table,
 | then redirects to the services dashboard.
 */
 
-// Include database connection
+// Database connection
 require 'db_connect.php';
 
 // Check if form was submitted via POST

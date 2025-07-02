@@ -65,14 +65,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 mkdir($staffFolder, 0755, true);
             }
 
-            // File upload handler: saves and returns path if upload is valid
+            // Helper: handle file uploads
             function handleUpload($field, $filename, $folder) {
                 if (isset($_FILES[$field]) && $_FILES[$field]['error'] === UPLOAD_ERR_OK) {
                     $ext = pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION);
                     $safeExt = preg_replace('/[^a-zA-Z0-9]/', '', $ext);
-                    $path = $folder . $filename . ($safeExt ? '.' . $safeExt : '');
-                    move_uploaded_file($_FILES[$field]['tmp_name'], $path);
-                    return $path;
+                    $safeFile = $filename . ($safeExt ? '.' . $safeExt : '');
+                    $target = $folder . $safeFile;
+                    move_uploaded_file($_FILES[$field]['tmp_name'], $target);
+                    return $target;
                 }
                 return null;
             }
@@ -119,6 +120,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // Set $old as empty to prevent undefined index
     $old = ['full_name'=>'', 'email'=>'', 'phone_number'=>'', 'role'=>''];
 }
+
+            // Handle cropped profile image (overwrites profilePicPath if provided)
+            if (!empty($_POST['cropped_image'])) {    
+                $img_data = str_replace('data:image/jpeg;base64,', '', $_POST['cropped_image']);
+                $img_data = base64_decode($img_data);
+
+                $cropped_path = $staffFolder . "profile.jpg";
+                file_put_contents($cropped_path, $img_data);
+
+                $profilePicPath = $cropped_path;
+            }
+       
 ?>
 
 <!DOCTYPE html>
@@ -132,6 +145,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- TREA Custom Styles -->
     <link rel="stylesheet" href="styles.css?v=<?= time() ?>">
+    <!-- Cropper.js CSS to resize the profile picture-->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet"/>
+
 </head>
 <body class="d-flex flex-column min-vh-100 bg-light">
     <?php include 'header.php'; ?>
@@ -180,10 +196,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Profile Picture</label>
-                        <input type="file" name="profile_picture" class="form-control">
-                    </div>
-                    <div class="mb-3">
                         <label class="form-label">CV <span class="text-danger">*</span></label>
                         <input type="file" name="cv" accept=".pdf" class="form-control" required>
                     </div>
@@ -211,7 +223,24 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         <input type="checkbox" class="form-check-input" id="toggle-password-signup">
                         <label class="form-check-label" for="toggle-password-signup">Show Password</label>
                     </div>
-                    <button type="submit" name="submit" class="btn btn-primary w-100">Sign Up</button>
+                    <div class="mb-3">
+                        <label class="form-label">Profile Picture</label>
+                        <input type="file" name="profile_picture" id="profile_picture" class="form-control" accept="image/*">
+
+            <div class="d-flex justify-content-center">            
+<div class="profile-pic-wrapper mt-4" style="width: 200px; height: 200px; border-radius: 50%; overflow: hidden; border: 1px solid #C154C1; margin-bottom:1rem;">
+  <img id="preview" src="placeholder.jpg" style="width:100%;height:100%;object-fit:cover;display:none;">
+</div>
+</div>  
+  
+<div class="mt-2 text-center">
+  <button type="button" id="crop-btn" class="btn" style="display:none; background-color: rgb(218, 137, 137);">Crop Image</button>
+  <button type="button" id="crop-done-btn" class="btn" style="display:none; background-color: rgb(218, 137, 137);">Done</button>
+</div>
+<input type="hidden" id="cropped_image" name="cropped_image">
+    </div>
+               
+                    <button type="submit" name="submit" class="btn custom-btn w-100">Sign Up</button>
                 </form>
 
                 <p class="text-center mt-3 mb-0">
@@ -234,7 +263,112 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             });
         }
     </script>
+
+    <script>
+  // Toggle button label ("Read more"/"Read less") for each news article
+  document.querySelectorAll('.toggle-btn').forEach(btn => {
+    const targetId = btn.getAttribute('data-bs-target');
+    const target = document.querySelector(targetId);
+
+    if (!target) return;
+    target.addEventListener('shown.bs.collapse', () => {
+      btn.textContent = 'Read less';
+    });
+    target.addEventListener('hidden.bs.collapse', () => {
+      btn.textContent = 'Read more';
+    });
+  });
+</script>
+
+    <!-- Cropper.js JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+
+<!-- Preview and crop images -->
+<script>
+let cropper;
+let img = document.getElementById('preview');
+const fileInput = document.getElementById('profile_picture');
+const cropBtn = document.getElementById('crop-btn');
+const doneBtn = document.getElementById('crop-done-btn');
+const hiddenCropped = document.getElementById('cropped_image');
+
+let currentObjectURL = null;
+
+// Show preview only on upload
+fileInput.addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) {
+    img.style.display = "none";
+    cropBtn.style.display = "none";
+    doneBtn.style.display = "none";
+    hiddenCropped.value = '';
+    if (cropper) { cropper.destroy(); cropper = null; }
+    if (currentObjectURL) { URL.revokeObjectURL(currentObjectURL); currentObjectURL = null; }
+    return;
+  }
+
+  hiddenCropped.value = '';
+  img.style.display = "block";
+  cropBtn.style.display = "inline-block";
+  doneBtn.style.display = "none";
+
+  if (cropper) { cropper.destroy(); cropper = null; }
+  if (currentObjectURL) { URL.revokeObjectURL(currentObjectURL); currentObjectURL = null; }
+
+  currentObjectURL = URL.createObjectURL(file);
+  img.src = currentObjectURL;
+});
+
+// Crop button initializes cropper
+cropBtn.addEventListener('click', function() {
+  if (cropper) cropper.destroy();
+  cropper = new Cropper(img, {
+    aspectRatio: 1,
+    viewMode: 1,
+    autoCropArea: 1,
+    dragMode: 'move',
+    background: false,
+    guides: false,
+    movable: true,
+    zoomable: true,
+    rotatable: false,
+    scalable: false,
+    cropBoxMovable: true,
+    cropBoxResizable: false,
+    ready() {
+      // Hide square crop box border for a circular look
+      document.querySelector('.cropper-crop-box').style.borderRadius = '50%';
+    }
+  });
+  doneBtn.style.display = "inline-block";
+  cropBtn.style.display = "none";
+});
+
+// Done button finalizes crop
+doneBtn.addEventListener('click', function() {
+  if (cropper) {
+    const canvas = cropper.getCroppedCanvas({ width: 300, height: 300 });
+    const croppedDataUrl = canvas.toDataURL('image/jpeg');
+    img.src = croppedDataUrl;
+    hiddenCropped.value = croppedDataUrl;
+    doneBtn.style.display = "none";
+    cropBtn.style.display = "inline-block";
+    cropper.destroy();
+    cropper = null;
+    if (currentObjectURL) {
+      URL.revokeObjectURL(currentObjectURL);
+      currentObjectURL = null;
+    }
+  }
+});
+
+</script>
+
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
+
 </body>
 </html>

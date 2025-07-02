@@ -29,16 +29,33 @@ SELECT
     v.agent_feedback, v.visit_report_path, v.review_pdf_path, v.report_result,
     u.full_name AS client_name, c.client_id,
     p.property_name, p.property_id, p.listing_type,
-    s.full_name AS assigned_agent
+    s.full_name AS assigned_agent,
+    osr.assigned_agent_id AS inspection_agent_id,
+    s2.full_name AS inspection_agent_name
 FROM client_onsite_visits v
 JOIN clients c ON v.client_id = c.client_id
 JOIN users u ON c.user_id = u.user_id
 JOIN properties p ON v.property_id = p.property_id
+LEFT JOIN owner_service_requests osr ON osr.request_id = p.request_id
+LEFT JOIN staff s2 ON osr.assigned_agent_id = s2.staff_id
 LEFT JOIN staff s ON v.assigned_agent_id = s.staff_id
 ORDER BY v.visit_date DESC, v.visit_time DESC
 ";
+
 $stmt = $pdo->query($sql);
 $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Auto-assign inspection agent to any visit missing an assigned agent
+foreach ($visits as &$row) {
+    if (!$row['assigned_agent_id'] && $row['inspection_agent_id']) {
+        $update = $pdo->prepare("UPDATE client_onsite_visits SET assigned_agent_id = ? WHERE visit_id = ?");
+        $update->execute([$row['inspection_agent_id'], $row['visit_id']]);
+        $row['assigned_agent_id'] = $row['inspection_agent_id'];
+        $row['assigned_agent'] = $row['inspection_agent_name'];
+    }
+}
+unset($row);
+
 ?>
 
 <!DOCTYPE html>
@@ -60,7 +77,7 @@ $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <!-- Main content area -->
         <main class="col-12 p-4">
             <div class="mb-4 p-3 border rounded shadow-sm main-title bg-white">
-                <h2 class="mb-0 text-primary">Manage Client Visits</h2>
+                <h2>Manage Client Visits</h2>
             </div>
 
             <div class="table-responsive">
@@ -74,7 +91,7 @@ $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             <th>Agent Report</th>
                             <th>Manager Review</th>
                             <th>Final Status</th>
-                            <th>Claim Status</th>
+                            <th>Reservation Status</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -89,25 +106,13 @@ $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             <td><?= htmlspecialchars($row['property_name']) ?> (<?= htmlspecialchars($row['listing_type']) ?>)</td>
                             <td><?= date('Y-m-d H:i', strtotime($row['visit_date'] . ' ' . $row['visit_time'])) ?></td>
                             <td>
-                                <?php if (!$row['assigned_agent_id']): ?>
-                                    <!-- Assign agent form -->
-                                    <form method="POST" action="assign-agent.php" class="d-flex gap-2">
-                                        <input type="hidden" name="type" value="client_visit">
-                                        <input type="hidden" name="visit_id" value="<?= $row['visit_id'] ?>">
-                                        <select name="agent_id" class="form-select form-select-sm" required>
-                                            <option value="">Select Agent</option>
-                                            <?php
-                                            // Fetch available field agents
-                                            $agents = $pdo->query("SELECT staff_id, full_name FROM staff WHERE role = 'Field Agent'")->fetchAll();
-                                            foreach ($agents as $agent): ?>
-                                                <option value="<?= $agent['staff_id'] ?>"><?= htmlspecialchars($agent['full_name']) ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                        <button class="btn btn-sm btn-primary">Assign</button>
-                                    </form>
-                                <?php else: ?>
-                                    <?= htmlspecialchars($row['assigned_agent']) ?>
-                                <?php endif; ?>
+                                <?php if ($row['assigned_agent_id']): ?>
+                                    <?= htmlspecialchars($row['assigned_agent'] ?? $row['inspection_agent_name']) ?>
+                                    <?php elseif ($row['inspection_agent_id']): ?>
+                                        <?= htmlspecialchars($row['inspection_agent_name']) ?>
+                                        <?php else: ?>
+                                            <span class="text-muted">Not Assigned</span>
+                                            <?php endif; ?>
                             </td>
                             <td>
                                 <?php if ($row['visit_report_path']): ?>
@@ -120,7 +125,7 @@ $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                 <?php if ($row['review_pdf_path']): ?>
                                     <a href="<?= htmlspecialchars($row['review_pdf_path']) ?>" target="_blank">View Review</a>
                                 <?php elseif ($row['visit_report_path']): ?>
-                                    <a href="review-client-visit.php?id=<?= $row['visit_id'] ?>" class="btn btn-sm btn-secondary">Review</a>
+                                    <a href="review-client-visit.php?id=<?= $row['visit_id'] ?>" class="btn btn-sm custom-btn">Review</a>
                                 <?php else: ?>
                                     <span class="text-muted">Awaiting report</span>
                                 <?php endif; ?>
@@ -138,7 +143,7 @@ $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </td>
                             <td>
                                 <?php
-                                // Fetch claim status for this visit
+                                // Fetch claim status for this visit 
                                 $stmt2 = $pdo->prepare("SELECT claim_status FROM client_claims WHERE visit_id = ?");
                                 $stmt2->execute([$row['visit_id']]);
                                 $claim = $stmt2->fetch();
@@ -157,5 +162,9 @@ $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 <?php include 'footer.php'; ?>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js" integrity="sha384-j1CDi7MgGQ12Z7Qab0qlWQ/Qqz24Gc6BM0thvEMVjHnfYGF0rmFCozFSxQBxwHKO" crossorigin="anonymous"></script>
+
+<!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
+
 </body>
 </html>

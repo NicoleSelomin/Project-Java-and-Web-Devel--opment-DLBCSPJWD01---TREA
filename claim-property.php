@@ -66,7 +66,7 @@ if ($existingClaim->fetch()) {
 // --- 4. Insert claim record ---
 $insert = $pdo->prepare("
     INSERT INTO client_claims (client_id, property_id, visit_id, claim_type, claim_source, claim_status)
-    VALUES (?, ?, ?, ?, ?, 'claimed')
+    VALUES (?, ?, ?, ?, ?, 'reserved')
 ");
 $insert->execute([
     $client_id,

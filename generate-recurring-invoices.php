@@ -1,118 +1,125 @@
 <?php
-/**
- * ----------------------------------------------------------------------------------
- * generate-recurring-invoices.php
- * ----------------------------------------------------------------------------------
- *
- * Script to auto-generate new recurring rent invoices for all active claims.
- * - Runs as a scheduled (cron) task or manually as needed.
- * - Checks all claims with active recurring invoicing.
- * - For each, generates the next invoice if within contract period and not already created.
- *
- * Dependencies:
- * - db_connect.php (PDO $pdo)
- * - rental_contracts table (for contract_end_date)
- * - rental_recurring_invoices table (stores invoice records and settings)
- *_____________________________________________________________________________________
- */
+// generate-recurring-invoice.php
 
 require 'db_connect.php';
+require_once 'libs/dompdf/autoload.inc.php';
 
-$now = new DateTime();
-$invoicesGenerated = 0;
+use Dompdf\Dompdf;
 
-// -----------------------------------------------------------------------------
-// Fetch all claim IDs where recurring invoicing is active
-// -----------------------------------------------------------------------------
-$stmt = $pdo->query("
-    SELECT DISTINCT claim_id
-    FROM rental_recurring_invoices
-    WHERE recurring_active = 1
+$invoice_id = isset($_GET['invoice_id']) ? intval($_GET['invoice_id']) : 0;
+if (!$invoice_id) exit('Invoice not specified.');
+
+// 1. Fetch invoice & related details
+$stmt = $pdo->prepare("
+    SELECT ri.*, cc.claim_id, c.client_id, u.full_name AS client_name, u.email, 
+           p.property_id, p.property_name, p.location, 
+           rc.amount AS monthly_rent, rc.contract_start_date, rc.contract_end_date, rc.penalty_rate, 
+           rc.payment_frequency, rc.grace_period_days
+    FROM rental_recurring_invoices ri
+    JOIN client_claims cc ON ri.claim_id = cc.claim_id
+    JOIN clients c ON cc.client_id = c.client_id
+    JOIN users u ON c.user_id = u.user_id
+    JOIN properties p ON cc.property_id = p.property_id
+    JOIN rental_contracts rc ON cc.claim_id = rc.claim_id
+    WHERE ri.invoice_id = ?
+    LIMIT 1
 ");
-$claimIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+$stmt->execute([$invoice_id]);
+$invoice = $stmt->fetch(PDO::FETCH_ASSOC);
 
-foreach ($claimIds as $claim_id) {
-    // -------------------------------------------------------------------------
-    // Fetch contract end date for this claim (skip if missing or ended)
-    // -------------------------------------------------------------------------
-    $contractStmt = $pdo->prepare("SELECT contract_end_date FROM rental_contracts WHERE claim_id = ?");
-    $contractStmt->execute([$claim_id]);
-    $contract = $contractStmt->fetch(PDO::FETCH_ASSOC);
-    if (!$contract || !$contract['contract_end_date']) continue;
+if (!$invoice) exit('Invoice not found.');
 
-    $end_date = new DateTime($contract['contract_end_date']);
-    if ($now > $end_date) continue; // Contract already ended
+// Calculate due date based on grace_period_days
+$graceDays = isset($invoice['grace_period_days']) && $invoice['grace_period_days'] > 0 ? intval($invoice['grace_period_days']) : 7;
+$dueDateObj = new DateTime($invoice['invoice_date']);
+$dueDate = $dueDateObj->modify("+".($graceDays)." days")->format('Y-m-d');
 
-    // -------------------------------------------------------------------------
-    // Fetch the latest (most recent) invoice for this claim
-    // -------------------------------------------------------------------------
-    $invStmt = $pdo->prepare("
-        SELECT * FROM rental_recurring_invoices
-        WHERE claim_id = ?
-        ORDER BY invoice_date DESC
-        LIMIT 1
-    ");
-    $invStmt->execute([$claim_id]);
-    $lastInvoice = $invStmt->fetch(PDO::FETCH_ASSOC);
-    if (!$lastInvoice) continue; // No recurring settings or prior invoice
+// 2. Prepare replacement values for template
+$agencyName = "Trusted Real Estate Agency (TREA)";
+$invoiceNumber = "INV-" . str_pad($invoice['invoice_id'], 6, "0", STR_PAD_LEFT);
+$invoiceDate = $invoice['invoice_date'];
+$clientName = $invoice['client_name'];
+$propertyName = $invoice['property_name'];
+$claimId = $invoice['claim_id'];
+$frequency = ucfirst($invoice['payment_frequency']);
+$periodStart = $invoice['invoice_date'];
+$periodEnd   = $dueDate; // use the calculated due date
+$baseRent = number_format($invoice['monthly_rent'], 2);
+$months = match (strtolower($invoice['payment_frequency'])) {
+    'monthly' => 1, 'quarterly' => 3, 'yearly' => 12, default => 1,
+};
+$total = number_format($invoice['monthly_rent'] * $months, 2);
+$penaltyRate = number_format($invoice['penalty_rate'], 2);
 
-    // -------------------------------------------------------------------------
-    // Determine the frequency interval and calculate next invoice date
-    // -------------------------------------------------------------------------
-    $last_invoice_date = new DateTime($lastInvoice['invoice_date']);
-    if ($last_invoice_date >= $end_date) continue; // Last invoice is after contract
-
-    $frequency = $lastInvoice['payment_frequency'];
-    $interval = match ($frequency) {
-        'daily'     => new DateInterval('P1D'),
-        'monthly'   => new DateInterval('P1M'),
-        'quarterly' => new DateInterval('P3M'),
-        'yearly'    => new DateInterval('P1Y'),
-        default     => null,
-    };
-    if (!$interval) continue; // Unknown frequency
-
-    $amount           = $lastInvoice['amount'];
-    $penalty          = $lastInvoice['penalty_rate'];
-    $due_days         = (new DateTime($lastInvoice['due_date']))->diff(new DateTime($lastInvoice['invoice_date']))->days ?? 7; // Fallback to 7 days
-    $recurring_active = $lastInvoice['recurring_active'];
-
-    // -------------------------------------------------------------------------
-    // Generate next invoice(s) if needed (one or more, if script is run late)
-    // -------------------------------------------------------------------------
-    $nextDate = (clone $last_invoice_date)->add($interval);
-
-    // Only generate invoices with a date >= today and <= contract end date
-    while ($nextDate <= $end_date && $nextDate >= $now) {
-        $invoice_date = $nextDate->format('Y-m-d');
-
-        // Prevent duplicate invoices for the same date
-        $check = $pdo->prepare("SELECT COUNT(*) FROM rental_recurring_invoices WHERE claim_id = ? AND invoice_date = ?");
-        $check->execute([$claim_id, $invoice_date]);
-        if ($check->fetchColumn() > 0) {
-            $nextDate->add($interval);
-            continue;
-        }
-
-        $due_date = (clone $nextDate)->modify("+{$due_days} days")->format('Y-m-d');
-
-        // Create the invoice record
-        $insert = $pdo->prepare("
-            INSERT INTO rental_recurring_invoices
-                (claim_id, invoice_date, due_date, payment_frequency, amount, penalty_rate, payment_status, payment_proof, created_at, recurring_active)
-            VALUES
-                (?, ?, ?, ?, ?, ?, 'pending', NULL, NOW(), ?)
-        ");
-        $insert->execute([$claim_id, $invoice_date, $due_date, $frequency, $amount, $penalty, $recurring_active]);
-        $invoicesGenerated++;
-
-        $nextDate->add($interval); // Prepare for next (if script run late, generate all missed)
-    }
+// Penalty/Overdue logic
+$now = new DateTime();
+$due_date_dt = new DateTime($dueDate); // use the new dueDate!
+$is_overdue = $now > $due_date_dt && $invoice['payment_status'] !== 'confirmed';
+$overdueHtml = "";
+if ($is_overdue && $invoice['penalty_rate'] > 0) {
+    $days_late = $due_date_dt->diff($now)->days;
+    $penalty_total = $invoice['monthly_rent'] * $months * $invoice['penalty_rate'] / 100;
+    $overdueHtml = "
+      <tr>
+        <td style='color:red;'><b>Overdue ({$days_late} days)</b></td>
+        <td align='right'><span style='color:red;'>Penalty: " . number_format($penalty_total, 2) . "</span></td>
+      </tr>
+      <tr>
+        <td><b>Total with Penalty</b></td>
+        <td align='right' class='amount'>" . number_format(($invoice['monthly_rent'] * $months) + $penalty_total, 2) . "</td>
+      </tr>
+    ";
 }
 
-// -----------------------------------------------------------------------------
-// Output summary (for manual runs/logs)
-// -----------------------------------------------------------------------------
-echo "Recurring invoices generated: $invoicesGenerated";
+// 3. Load and fill the template
+$template_path = 'invoice-rent-recurring.html';
+if (!file_exists($template_path)) {
+    exit('Invoice template not found.');
+}
+$template = file_get_contents($template_path);
+$filled = str_replace([
+    '{{AGENCY_NAME}}', '{{INVOICE_NUMBER}}', '{{INVOICE_DATE}}', '{{CLIENT_NAME}}',
+    '{{PROPERTY_NAME}}', '{{CLAIM_ID}}', '{{PAYMENT_FREQUENCY}}', '{{START_DATE}}',
+    '{{END_DATE}}', '{{BASE_RENT}}', '{{MONTHS}}', '{{TOTAL}}', '{{PENALTY_RATE}}',
+    '{{DUE_DATE}}', '{{OVERDUE_SECTION}}'
+], [
+    $agencyName, $invoiceNumber, $invoiceDate, $clientName,
+    $propertyName, $claimId, $frequency, $periodStart,
+    $periodEnd, $baseRent, $months, $total, $penaltyRate,
+    $dueDate, $overdueHtml
+], $template);
 
+// 4. Generate PDF (On Demand, Don't Save to Disk Unless For Archive/Admin)
+$dompdf = new Dompdf(['chroot' => __DIR__]);
+$dompdf->loadHtml($filled);
+$dompdf->setPaper('A4', 'portrait');
+$dompdf->render();
+
+
+ // To keep an admin archive
+function safe_slug($text) {
+    return strtolower(trim(preg_replace('/[^A-Za-z0-9_]/', '', str_replace(' ', '_', $text))));
+}
+$client_folder = "uploads/clients/" . $invoice['client_id'] . "_" . safe_slug($invoice['client_name']);
+$property_folder = $client_folder . "/reserved_properties/" . $invoice['property_id'] . "_" . safe_slug($invoice['property_name']);
+$pdfPath = $property_folder . "/invoice_" . $invoice['invoice_id'] . ".pdf";
+if (!is_dir($property_folder)) {
+    mkdir($property_folder, 0777, true);
+}
+file_put_contents($pdfPath, $dompdf->output());
+if (empty($invoice['invoice_path']) || $invoice['invoice_path'] !== $pdfPath) {
+    $stmt = $pdo->prepare("UPDATE rental_recurring_invoices SET invoice_path = ? WHERE invoice_id = ?");
+    $stmt->execute([$pdfPath, $invoice_id]);
+}
+
+
+// 5. Browser preview? (for debug, AJAX, or admin preview)
+if (isset($_GET['preview']) && $_GET['preview'] == 1) {
+    echo $filled;
+    exit;
+}
+
+// 6. PDF download in browser (for admin/staff/user direct download/view)
+$dompdf->stream("Rent-Invoice-{$invoiceNumber}.pdf", ["Attachment" => false]);
+exit;
 ?>

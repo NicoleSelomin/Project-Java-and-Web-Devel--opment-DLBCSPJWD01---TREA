@@ -26,9 +26,8 @@ require 'db_connect.php';
 
 // ---------- Access Control (Staff Role) ----------
 
-// Ensure only logged-in accountants can access this page
-if (!isset($_SESSION['staff_id']) || strtolower($_SESSION['role']) !== 'accountant') {
-    // Redirect unauthorized users to login
+// Ensure only logged-in accountants and general manager can access this page
+if (!isset($_SESSION['staff_id']) || !in_array(strtolower($_SESSION['role']), ['accountant', 'general manager'])) {
     header("Location: staff-login.php");
     exit();
 }
@@ -36,7 +35,6 @@ if (!isset($_SESSION['staff_id']) || strtolower($_SESSION['role']) !== 'accounta
 // Retrieve accountant's profile info from session
 $fullName = $_SESSION['full_name'] ?? 'Staff';
 $userId = $_SESSION['staff_id'] ?? '';
-$profilePicture = $_SESSION['profile_picture_path'] ?? 'default.png';
 
 // ---------- Handle Invoice Upload and Payment Confirmation ----------
 
@@ -112,9 +110,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_id'])) {
 // Select all owner service requests along with invoice/payment status for display in table
 $invoiceUploads = $pdo->query("
     SELECT 
-        r.request_id, r.property_name, r.location, 
-        s.service_name, u.full_name AS owner_name, 
-        r.submitted_at,
+        r.request_id, r.property_name, r.location, r.submitted_at,
+        s.service_name, s.slug,
+        u.full_name AS owner_name, 
         p.invoice_path, p.payment_proof, p.payment_status
     FROM owner_service_requests r
     JOIN owners o ON r.owner_id = o.owner_id
@@ -123,11 +121,6 @@ $invoiceUploads = $pdo->query("
     JOIN service_request_payments p ON r.request_id = p.request_id AND p.payment_type = 'application'
     ORDER BY r.submitted_at DESC
 ")->fetchAll(PDO::FETCH_ASSOC);
-
-// Handle fallback/default profile image
-$profilePicturePath = (!empty($profilePicture) && file_exists($profilePicture))
-    ? $profilePicture
-    : 'default.png';
 ?>
 
 <!DOCTYPE html>
@@ -147,60 +140,26 @@ $profilePicturePath = (!empty($profilePicture) && file_exists($profilePicture))
 <div class="container-fluid">
   <div class="row">
 
-    <!-- Sidebar (Accountant Profile & Navigation) -->
-    <div class="col-12 col-md-3 mb-3">
-      <!-- Toggle sidebar for mobile -->
-      <button class="btn btn-sm d-md-none mb-3 custom-btn" type="button" data-bs-toggle="collapse" data-bs-target="#sidebarCollapse" aria-expanded="false" aria-controls="sidebarCollapse">
-        Open Menu
-      </button>
-      <div class="collapse d-md-block" id="sidebarCollapse">
-        <div class="sidebar text-center">
-          <div class="profile-summary text-center">
-            <!-- Display profile picture, name, and ID -->
-            <img src="<?= htmlspecialchars($profilePicturePath) ?>" alt="Profile Picture" class="mb-3">
-            <p><strong><?= htmlspecialchars($fullName) ?></strong></p>
-            <p>ID: <?= htmlspecialchars($userId) ?></p>
-            <!-- Quick navigation buttons -->
-            <a href="notifications.php" class="btn mt-3 bg-light w-100">View Notifications</a>
-            <a href="edit-staff-profile.php" class="btn mt-3 bg-light w-100">Edit Profile</a>
-            <a href="staff-logout.php" class="btn text-danger mt-3 d-block bg-light w-100">Logout</a>
-          </div>
-          <!-- Embedded Calendar (Optional for scheduling) -->
-          <div>
-            <h5 class="mt-5">Calendar</h5>
-            <iframe src="https://calendar.google.com/calendar/embed?mode=MONTH" frameborder="0" scrolling="no"></iframe>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Main Content Area -->
-    <main class="col-12 col-md-9">
-      <!-- Page Header -->
+    <main class="col-12 col-md-11 ms-lg-5">
       <div class="mb-4 p-3 border rounded shadow-sm main-title">
         <h2>Confirm Application Fee Payments</h2>
       </div>
 
-      <!-- Session Feedback Alert (e.g., invoice uploaded, payment confirmed) -->
       <?php if (isset($_SESSION['confirmation_success'])): ?>
         <div class="alert alert-success"><?= $_SESSION['confirmation_success'] ?></div>
         <?php unset($_SESSION['confirmation_success']); ?>
       <?php endif; ?>
 
-      <!-- Section Title -->
-      <div class="mb-4 p-3 border rounded shadow-sm">
-        <h4>Upload Invoices</h4>
-      </div>
-
-      <!-- Table of Service Requests Requiring Application Fee Actions -->
       <div class="table-responsive">
-        <table class="table table-bordered">
-          <thead class="table-light">
+        <table class="table table-bordered table-striped align-middle">
+          <thead class="table-dark">
             <tr>
               <th>Owner</th>
               <th>Service</th>
               <th>Property</th>
               <th>Location</th>
+              <th>Application Form</th>
               <th>Submitted</th>
               <th>Invoice</th>
               <th>Payment Proof</th>
@@ -211,68 +170,58 @@ $profilePicturePath = (!empty($profilePicture) && file_exists($profilePicture))
             <?php if ($invoiceUploads): ?>
               <?php foreach ($invoiceUploads as $row): ?>
                 <tr>
-                  <!-- Owner name -->
                   <td><?= htmlspecialchars($row['owner_name']) ?></td>
-                  <!-- Service name -->
-                  <td><?= htmlspecialchars($row['service_name']) ?></td>
-                  <!-- Property associated with this request -->
+                  <td><?= htmlspecialchars($row['service_name']) ?> <span class="text-muted small">(<?= htmlspecialchars($row['slug']) ?>)</span></td>
                   <td><?= htmlspecialchars($row['property_name']) ?></td>
-                  <!-- Location of the property/service -->
                   <td><?= htmlspecialchars($row['location']) ?></td>
-                  <!-- Request submission date -->
-                  <td><?= date('Y-m-d', strtotime($row['submitted_at'])) ?></td>
+                  <td><a href="generate-application-pdf.php?id=<?= ($row['request_id']) ?>" target="_blank">PDF</a></td>
+                  <td><?= date('Y-m-d H:i', strtotime($row['submitted_at'])) ?></td>
 
-                  <!-- Invoice Upload or View Link -->
+                  <!-- INVOICE COLUMN -->
                   <td>
                     <?php if (empty($row['invoice_path'])): ?>
-                      <!-- If invoice not yet uploaded, show file upload form -->
-                      <form method="POST" enctype="multipart/form-data">
-                        <input type="hidden" name="request_id" value="<?= $row['request_id'] ?>">
-                        <input type="file" name="invoice_file" accept=".pdf,.jpg,.jpeg,.png" class="form-control form-control-sm mb-1" required>
-                        <button type="submit" class="btn btn-sm btn-primary">Upload</button>
-                      </form>
+                      <!-- No invoice generated yet: link to edit-invoice -->
+                      <a href="edit-invoice.php?request_id=<?= $row['request_id'] ?>&type=service" class="btn btn-sm custom-btn">Generate Invoice</a>
                     <?php else: ?>
-                      <!-- If invoice exists, show link to download/view -->
-                      <a href="<?= htmlspecialchars($row['invoice_path']) ?>" target="_blank">View Invoice</a>
+                      <!-- Invoice exists: view/download -->
+                       <div class="d-flex">
+                      <a href="<?= htmlspecialchars($row['invoice_path']) ?>" target="_blank" class="btn btn-sm custom-btn">View</a>
+                      <br>
+                      <a href="edit-invoice.php?request_id=<?= $row['request_id'] ?>&type=service" class="btn btn-sm btn-outline-danger ms-2">Edit</a>
+                    </div>
                     <?php endif; ?>
                   </td>
 
-                  <!-- Payment Proof (Owner's Upload) -->
+                  <!-- PAYMENT PROOF -->
                   <td>
                     <?php if (!empty($row['payment_proof'])): ?>
-                      <!-- If proof uploaded, show link -->
-                      <a href="<?= htmlspecialchars($row['payment_proof']) ?>" target="_blank">View Proof</a>
+                      <a href="<?= htmlspecialchars($row['payment_proof']) ?>" target="_blank" class="btn btn-sm custom-btn">View</a>
                     <?php else: ?>
-                      <!-- Otherwise, indicate still pending -->
                       <span class="text-muted">Awaiting proof</span>
                     <?php endif; ?>
                   </td>
 
-                  <!-- Action: Confirm Payment or Status Badge -->
+                  <!-- ACTION (Confirm) -->
                   <td>
                     <?php if (
                       !empty($row['invoice_path']) &&
                       !empty($row['payment_proof']) &&
                       $row['payment_status'] !== 'confirmed'
                     ): ?>
-                      <!-- Enable confirm button only if both invoice and proof are present, and payment is not yet confirmed -->
                       <form method="POST">
                         <input type="hidden" name="request_id" value="<?= $row['request_id'] ?>">
                         <input type="hidden" name="confirm_only" value="1">
                         <button class="btn btn-sm btn-success">Confirm</button>
                       </form>
                     <?php elseif ($row['payment_status'] === 'confirmed'): ?>
-                      <!-- Show badge if already confirmed -->
                       <span class="badge bg-success">Confirmed</span>
                     <?php else: ?>
-                      <!-- Otherwise, indicate waiting -->
                       <span class="text-muted">Waiting</span>
                     <?php endif; ?>
                   </td>
                 </tr>
               <?php endforeach; ?>
             <?php else: ?>
-              <!-- No records found fallback -->
               <tr>
                 <td colspan="8" class="text-muted text-center">No applications found.</td>
               </tr>
@@ -280,6 +229,9 @@ $profilePicturePath = (!empty($profilePicture) && file_exists($profilePicture))
           </tbody>
         </table>
       </div>
+
+    <a href="staff-profile.php" class="btn bg-dark text-white fw-bold">🡰 Back to dashboard</a>
+
     </main>
   </div>
 </div>
@@ -288,5 +240,9 @@ $profilePicturePath = (!empty($profilePicture) && file_exists($profilePicture))
 
 <!-- Bootstrap JS (required for responsive features and sidebar toggling) -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js" integrity="sha384-j1CDi7MgGQ12Z7Qab0qlWQ/Qqz24Gc6BM0thvEMVjHnfYGF0rmFCozFSxQBxwHKO" crossorigin="anonymous"></script>
+
+<!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
+
 </body>
 </html>

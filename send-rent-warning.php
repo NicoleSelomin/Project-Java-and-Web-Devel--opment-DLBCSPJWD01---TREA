@@ -1,20 +1,4 @@
 <?php
-/**
- * ============================================================================
- * send-rent-warning.php — TREA Real Estate Platform
- * ---------------------------------------------------------------------
- * Issue Manual Rent Warning (POST Handler)
- * ---------------------------------------------------------------------
- * Allows an accountant to submit a manual rent warning for a specific
- * rental claim. The warning is inserted into the rent_warnings table.
- * 
- * - Only accessible to staff with role 'accountant'
- * - Validates claim ID and message
- * - Saves warning type as 'manual'
- * - Redirects back to the rent claim confirmation page
- * ---------------------------------------------------------------------
- */
-
 session_start();
 require 'db_connect.php';
 
@@ -29,27 +13,45 @@ if (!isset($_SESSION['staff_id']) || strtolower($_SESSION['role']) !== 'accounta
 // ------------------------------------------------------------------
 // Validate and Sanitize Input
 // ------------------------------------------------------------------
-$claim_id = isset($_POST['claim_id']) ? intval($_POST['claim_id']) : 0;
-$message = trim($_POST['message'] ?? '');
-$staff_id = $_SESSION['staff_id'];
+$claim_id   = isset($_POST['claim_id'])   ? intval($_POST['claim_id'])   : 0;
+$invoice_id = isset($_POST['invoice_id']) ? intval($_POST['invoice_id']) : 0;
+$message    = trim($_POST['message'] ?? '');
+$staff_id   = $_SESSION['staff_id'];
 
-if ($claim_id <= 0 || $message === '') { 
-    // Prevent empty messages or invalid claim IDs
-    header("Location: confirm-rental-claim-payments.php?error=invalid_input");
+// Provide a default message if none submitted (rare, but safe)
+$default_message = "Final Warning:\n\nThis is your final reminder regarding your overdue rent payment. "
+    . "If payment proof is not submitted immediately, a formal notice to vacate will be issued as required by your lease agreement.\n\n"
+    . "Please act now to avoid further consequences.";
+
+if ($claim_id <= 0 || $invoice_id <= 0) {
+    header("Location: confirm-rental-management-invoices.php?error=invalid_input");
+    exit();
+}
+if ($message === '') $message = $default_message;
+
+// ------------------------------------------------------------------
+// Prevent duplicate manual/final warnings for same invoice (recommended)
+// ------------------------------------------------------------------
+$stmtCheck = $pdo->prepare(
+    "SELECT COUNT(*) FROM rent_warnings WHERE invoice_id = ? AND warning_type = 'manual'"
+);
+$stmtCheck->execute([$invoice_id]);
+if ($stmtCheck->fetchColumn() > 0) {
+    header("Location: confirm-rental-management-invoices.php?error=already_final_warning");
     exit();
 }
 
 // ------------------------------------------------------------------
-// Insert Warning into rent_warnings Table
+// Insert Manual Warning into rent_warnings Table
 // ------------------------------------------------------------------
 $stmt = $pdo->prepare(
-    "INSERT INTO rent_warnings (claim_id, warning_type, message, notified_by) VALUES (?, 'manual', ?, ?)"
+    "INSERT INTO rent_warnings (claim_id, invoice_id, warning_type, message, notified_by) VALUES (?, ?, 'manual', ?, ?)"
 );
-$stmt->execute([$claim_id, $message, $staff_id]);
+$stmt->execute([$claim_id, $invoice_id, $message, $staff_id]);
 
 // ------------------------------------------------------------------
 // Redirect back to the confirmation page
 // ------------------------------------------------------------------
-header("Location: confirm-rental-claim-payments.php?warning=sent");
+header("Location: confirm-rental-management-invoices.php?warning=sent");
 exit();
 ?>

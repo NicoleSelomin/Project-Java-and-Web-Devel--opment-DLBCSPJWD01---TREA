@@ -11,14 +11,10 @@
  * --------------------------------------------------------------------------
  */
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
+if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'db_connect.php';
 
 $cartCount = 0;
-
 // -----------------------------------------------------------------------------
 // Cart count: for logged-in client, fetch from DB; for guest, count session cart
 // -----------------------------------------------------------------------------
@@ -44,7 +40,7 @@ if (isset($_SESSION['client_id'])) {
       </a>
 
       <!-- Mobile Nav Toggler -->
-      <button class="navbar-toggler text-white" type="button" data-bs-toggle="collapse" data-bs-target="#mainNavbar">
+      <button class="navbar-toggler text-white bg-light" type="button" data-bs-toggle="collapse" data-bs-target="#mainNavbar">
         <span class="navbar-toggler-icon"></span>
       </button>
 
@@ -67,23 +63,23 @@ if (isset($_SESSION['client_id'])) {
             <a class="nav-link text-white" href="news.php">News</a>
           </li>
           <li class="nav-item">
-            <a class="nav-link text-white" href="services.php">Services</a>
+            <a class="nav-link text-white" href="services.php">List your Property</a>
           </li>
           <li class="nav-item">
             <a class="nav-link text-white" href="user-login.php">User Account</a>
           </li>
 
           <!-- Cart Button with Badge (shows for all users) -->
+          <?php if (!isset($_SESSION['staff_id']) && !isset($_SESSION['owner_id'])): ?>
           <li class="nav-item">
             <a href="view-cart.php" class="btn position-relative" style="font-size: 1.2rem;">
               🧺
-              <?php if ($cartCount > 0): ?>
-                <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
-                  <?= $cartCount ?>
-                </span>
-              <?php endif; ?>
+              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger cart-count-badge">
+                <?= $cartCount > 0 ? $cartCount : '' ?>
+              </span>
             </a>
           </li>
+          <?php endif; ?>
         </ul>
       </div>
     </div>

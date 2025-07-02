@@ -93,7 +93,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                                 <input type="checkbox" class="form-check-input" id="toggle-password-login">
                                 <label for="toggle-password-login" class="form-check-label">Show Password</label>
                             </div>
-                            <button type="submit" class="btn btn-primary w-100">Log In</button>
+                            <button type="submit" class="btn custom-btn w-100">Log In</button>
                         </form>
 
                     </div>
@@ -114,6 +114,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
 </body>
 </html>
 <?php ob_end_flush(); ?>

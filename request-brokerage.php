@@ -142,7 +142,7 @@ unset($_SESSION['form_data'], $_SESSION['form_error']);
         </div>
         <!-- Urgent Sale/Rent Checkbox -->
         <div class="form-check mb-3">
-            <input type="checkbox" name="urgent_sale" class="form-check-input" id="urgentCheck" <?= !empty($old['urgent_sale']) ? 'checked' : '' ?>>
+            <input type="checkbox" name="urgent" class="form-check-input" id="urgentCheck" <?= !empty($old['urgent']) ? 'checked' : '' ?>>
             <label class="form-check-label" for="urgentCheck">This is an urgent request</label>
         </div>
         <!-- Comments -->
@@ -162,7 +162,9 @@ unset($_SESSION['form_data'], $_SESSION['form_error']);
         </div>
     </form>
 </main>
+
 <?php include 'footer.php'; ?>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 // Client-side Bootstrap validation
@@ -180,5 +182,9 @@ unset($_SESSION['form_data'], $_SESSION['form_error']);
     });
 })();
 </script>
+
+<!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
+
 </body>
 </html>

@@ -174,5 +174,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <?php include 'footer.php'; ?>
     <!-- Bootstrap Bundle JS (Popper + Bootstrap) -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
 </body>
 </html>

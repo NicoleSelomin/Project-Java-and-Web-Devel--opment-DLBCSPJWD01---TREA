@@ -4,324 +4,515 @@
 | rental-management-claimed-properties.php
 |--------------------------------------------------------------------------
 | Staff dashboard for managing claimed rental-managed properties.
-| - Only accessible to general manager and property manager roles.
-| - Shows complete claim lifecycle: inspections, payments, contracts,
-|   renewals, warnings, and actions.
-| - Uniform Bootstrap 5.3.6 responsive UI.
+| - All notice-related fields are from rent_notices only!
 |--------------------------------------------------------------------------
-*/
-
-// ---------------------- Initialization & Permissions ----------------------
+*/ 
 session_start();
-require 'db_connect.php'; 
+require 'db_connect.php';
 
-// Only allow access to authorized staff roles
 if (!isset($_SESSION['staff_id']) || !in_array(strtolower($_SESSION['role']), ['general manager', 'property manager'])) {
     header("Location: staff-login.php");
     exit();
 }
 
-// Store staff ID for later use
-$staff_id = $_SESSION['staff_id'];
+// Load field agents
+$field_agents = $pdo->query("SELECT staff_id, full_name FROM staff WHERE role = 'Field Agent'")->fetchAll(PDO::FETCH_ASSOC);
 
-// ------------------ Load field agents for dropdown assignments -------------
-$field_stmt = $pdo->query("SELECT staff_id, full_name FROM staff WHERE role = 'Field Agent'");
-$field_agents = $field_stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// --------------- Query all relevant claim & contract details ---------------
+// Load all claims and related info (add contract_id for lookups)
 $sql = "
 SELECT 
-    cc.claim_id, cc.client_id, cc.property_id, cc.visit_id,
-    cc.meeting_datetime, cc.meeting_agent_id, cc.meeting_report_path,
-    cc.final_status, cc.claim_status,
-    cc.final_inspection_datetime, cc.final_inspection_agent_id, cc.final_inspection_report_path,
-
-    fu.full_name AS final_agent_name,
-    p.property_name, p.listing_type,
+    cc.*, 
+    p.property_name, p.listing_type, p.request_id,
     cu.full_name AS client_name,
     ou.full_name AS owner_name,
-    v.visit_date,
-    au.full_name AS agent_name,
-
-    rc.contract_discussion_datetime,
-    rc.contract_signed_path,
-    rc.contract_start_date,
-    rc.contract_end_date,
-    rc.actual_end_date,
-    rc.contract_end_manual,
-    rc.renewal_requested_datetime,
-    rc.renewal_meeting_datetime,
-    rc.renewed_contract_path,
-    rc.renewed_contract_end_date,
-    rc.key_handover_done,
-
-    claim.invoice_path AS claim_invoice,
-    claim.payment_proof AS claim_proof,
-    claim.payment_status AS claim_status,
-
-    deposit.invoice_path AS deposit_invoice,
-    deposit.payment_proof AS deposit_proof,
-    deposit.payment_status AS deposit_status,
-
-    rent.invoice_path AS rent_invoice,
-    rent.payment_proof AS rent_proof,
-    rent.payment_status AS rent_status
-
+    rc.contract_id, rc.locked AS contract_locked, rc.client_signature, rc.owner_signature,
+    rc.contract_start_date, rc.contract_end_date, rc.next_revision_date,
+    rc.notice_period_months, rc.actual_end_date, rc.termination_type, rc.termination_reason,
+    cc.meeting_datetime, cc.final_inspection_datetime, rc.contract_discussion_datetime,
+    claim.invoice_path AS claim_invoice, claim.payment_proof AS claim_proof, claim.payment_status AS claim_status,
+    deposit.invoice_path AS deposit_invoice, deposit.payment_proof AS deposit_proof, deposit.payment_status AS deposit_status
 FROM client_claims cc
 JOIN clients c ON cc.client_id = c.client_id
 JOIN users cu ON c.user_id = cu.user_id
 JOIN properties p ON cc.property_id = p.property_id
 JOIN owners o ON p.owner_id = o.owner_id
 JOIN users ou ON o.user_id = ou.user_id
-LEFT JOIN client_onsite_visits v ON cc.visit_id = v.visit_id
-LEFT JOIN users au ON cc.meeting_agent_id = au.user_id
-LEFT JOIN users fu ON cc.final_inspection_agent_id = fu.user_id
 LEFT JOIN rental_contracts rc ON cc.claim_id = rc.claim_id
-
-LEFT JOIN (SELECT * FROM rental_claim_payments WHERE payment_type = 'claim') AS claim ON cc.claim_id = claim.claim_id
-LEFT JOIN (SELECT * FROM rental_claim_payments WHERE payment_type = 'deposit') AS deposit ON cc.claim_id = deposit.claim_id
-LEFT JOIN (SELECT * FROM rental_claim_payments WHERE payment_type = 'rent') AS rent ON cc.claim_id = rent.claim_id
-
-WHERE cc.claim_type = 'rent' 
-  AND cc.claim_source = 'rental_property_management'
+LEFT JOIN rental_claim_payments claim ON cc.claim_id = claim.claim_id AND claim.payment_type = 'claim'
+LEFT JOIN rental_claim_payments deposit ON cc.claim_id = deposit.claim_id AND deposit.payment_type = 'deposit'
+WHERE cc.claim_type = 'rent' AND cc.claim_source = 'rental_property_management'
 ";
+$claims = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 
-$stmt = $pdo->query($sql);
-$claims = $stmt->fetchAll(PDO::FETCH_ASSOC);
+// Load assigned agents for each request
+$assignedAgents = [];
+foreach ($claims as $claim) {
+    $request_id = $claim['request_id'];
+    if (!isset($assignedAgents[$request_id])) {
+        $stmt = $pdo->prepare("
+            SELECT s.staff_id, s.full_name
+            FROM owner_service_requests osr
+            JOIN staff s ON osr.assigned_agent_id = s.staff_id
+            WHERE osr.request_id = ?
+        ");
+        $stmt->execute([$request_id]);
+        $agent = $stmt->fetch(PDO::FETCH_ASSOC);
+        $assignedAgents[$request_id] = $agent;
+    }
+}
 
-// ------------------- Load all warnings per claim for fast lookup -----------
-$warningStmt = $pdo->prepare("SELECT claim_id, warning_type, message, sent_at FROM rent_warnings WHERE claim_id = ? ORDER BY sent_at DESC");
+// Inspection reports for each claim
+$reportStmt = $pdo->prepare("SELECT * FROM inspection_reports WHERE claim_id = ? AND inspection_type = ?");
+foreach ($claims as &$claim) {
+    $reportStmt->execute([$claim['claim_id'], 'initial']);
+    $claim['initial_report'] = $reportStmt->fetch(PDO::FETCH_ASSOC);
+    $reportStmt->execute([$claim['claim_id'], 'final']);
+    $claim['final_report'] = $reportStmt->fetch(PDO::FETCH_ASSOC);
+}
+unset($claim);
+
+// Warnings for each claim (track count, type)
+$warningStmt = $pdo->prepare("SELECT warning_type, message, sent_at FROM rent_warnings WHERE claim_id = ? ORDER BY sent_at DESC");
 foreach ($claims as &$claim) {
     $warningStmt->execute([$claim['claim_id']]);
     $claim['warnings'] = $warningStmt->fetchAll(PDO::FETCH_ASSOC);
+    $claim['warning_count'] = count($claim['warnings']);
 }
 unset($claim);
+
+// Notices for each contract (active and history)
+$contractIds = array_values(array_filter(
+    array_column($claims, 'contract_id'),
+    function($v) { return is_numeric($v) && $v > 0; }
+));
+$noticeByContract = $allNoticesByContract = [];
+if (!empty($contractIds)) {
+    $qMarks = implode(',', array_fill(0, count($contractIds), '?'));
+    $stmt = $pdo->prepare("SELECT * FROM rent_notices WHERE contract_id IN ($qMarks) ORDER BY sent_at DESC");
+    $stmt->execute($contractIds);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $n) {
+        if (!isset($noticeByContract[$n['contract_id']]) && $n['status'] === 'active') {
+            $noticeByContract[$n['contract_id']] = $n;
+        }
+        $allNoticesByContract[$n['contract_id']][] = $n;
+    }
+}
+
+// Helper: should an auto-notice be triggered?
+function shouldAutoNotice($claim, $activeNotice) {
+    // If exactly 3 warnings and no active notice, auto-notice is triggered.
+    return ($claim['warning_count'] === 3 && empty($activeNotice));
+}
 ?>
 
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <!-- Head and responsive meta -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Rental Management Claimed Properties</title>
-    <!-- Bootstrap 5.3.6 and custom CSS -->
+    <title>Reserved Rental Management Properties</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css?v=<?= time() ?>">
+    <style>
+        .slot-calendar-container { min-width: 400px; }
+        @media (max-width: 700px) { .slot-calendar-container { min-width: 0; } }
+    </style>
 </head>
 <body class="d-flex flex-column min-vh-100 bg-light">
 <?php include 'header.php'; ?>
 
 <div class="container-fluid flex-grow-1">
     <div class="row">
-        <div class="col-12">
-            <main class="p-3">
-                <div class="mb-4 p-3 border rounded shadow-sm main-title">
-                    <h2 class="mb-4">Rental-Managed Properties – Claimed</h2>
-                </div>
-                <!-- Table: One row per rental-managed claim -->
-                <div class="table-responsive">
-                    <table class="table table-bordered table-hover align-middle small">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Client</th>
-                                <th>Property</th>
-                                <th>Visit Date</th>
-                                <th>Initial Inspection</th>
-                                <th>Report</th>
-                                <th>Deposit</th>
-                                <th>Contract Signing</th>
-                                <th>Contract</th>
-                                <th>Renewal</th>
-                                <th>Warnings</th>
-                                <th>Actions</th>
-                                <th>Final Inspection</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        <?php foreach ($claims as $row): ?>
-                            <tr>
-                                <!-- Client -->
-                                <td><?= htmlspecialchars($row['client_name']) ?></td>
-                                <td><?= htmlspecialchars($row['property_name']) ?> (<?= $row['listing_type'] ?>)</td>
-                                <td><?= $row['visit_date'] ?? '—' ?></td>
+        <main class="col-12 p-4">
+            <div class="mb-4 p-3 border rounded shadow-sm">
+                <h2 class="mb-4">Rental-Managed Properties – Reserved</h2>
+            </div>
+            <div class="text-end mb-4"><a href="staff-profile.php" class="btn btn-dark">Back to Dashboard</a></div>
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover align-middle">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Client</th>
+                            <th>Property</th>
+                            <th>Initial Inspection</th>
+                            <th>Contract Signing</th>
+                            <th>Contract Period</th>
+                            <th>Final Inspection</th>
+                            <th>Warnings</th>
+                            <th>Notice</th>
+                            <th>Actions</th>                            
+                        </tr>
+                    </thead>
+                    <tbody>
+ <?php foreach ($claims as $claim): ?>
+    <?php
+    // Get agent names for initial/final inspection
+$initialAgentName = '';
+$finalAgentName = '';
+if (!empty($claim['meeting_agent_id'])) {
+    $stmt = $pdo->prepare("SELECT full_name FROM staff WHERE staff_id = ?");
+    $stmt->execute([$claim['meeting_agent_id']]);
+    $initialAgentName = $stmt->fetchColumn() ?: '';
+}
+if (!empty($claim['final_inspection_agent_id'])) {
+    $stmt = $pdo->prepare("SELECT full_name FROM staff WHERE staff_id = ?");
+    $stmt->execute([$claim['final_inspection_agent_id']]);
+    $finalAgentName = $stmt->fetchColumn() ?: '';
+}
+    $contractId = $claim['contract_id'];
+    $activeNotice = $noticeByContract[$contractId] ?? null;
+    $noticeActive = $activeNotice && $activeNotice['status'] === 'active';
+    $noticeHistory = $allNoticesByContract[$contractId] ?? [];
 
-                                <!-- Initial Inspection assignment and display -->
-                                <td>
-                                    <?php if (
-                                        !$row['meeting_datetime'] && $row['claim_status'] === 'confirmed' 
-                                        && $row['claim_invoice'] && $row['claim_proof']
-                                    ): ?>
-                                        <!-- Assign agent and schedule -->
-                                        <form method="POST" action="assign-agent.php" class="d-flex gap-2 align-items-center">
-                                            <input type="hidden" name="claim_id" value="<?= $row['claim_id'] ?>">
-                                            <input type="hidden" name="type" value="rental_check">
-                                            <input type="datetime-local" name="meeting_datetime" class="form-control form-control-sm" min="<?= date('Y-m-d\TH:i', strtotime('+2 hours')) ?>" required>
-                                            <select name="agent_id" class="form-select form-select-sm" required>
-                                                <option value="">Select Agent</option>
-                                                <?php foreach ($field_agents as $agent): ?>
-                                                    <option value="<?= $agent['staff_id'] ?>"><?= htmlspecialchars($agent['full_name']) ?></option>
-                                                <?php endforeach; ?>
-                                            </select>
-                                            <button type="submit" class="btn btn-sm custom-btn">Set Meeting</button>
-                                        </form>
-                                    <?php else: ?>
-                                        <?= $row['meeting_datetime'] ? date('Y-m-d H:i', strtotime($row['meeting_datetime'])) : 'Pending' ?><br>
-                                        Agent: <?= $row['agent_name'] ?? '—' ?>
-                                    <?php endif; ?>
-                                </td>
+    $requestId = $claim['request_id'];
+    $agentRow = $assignedAgents[$requestId] ?? null;
+    $agentId = $agentRow['staff_id'] ?? null;
+    $initialInspectionSet = !empty($claim['meeting_datetime']);
+    $finalInspectionSet = !empty($claim['final_inspection_datetime']);
+    // Final inspection only if active notice exists
+    $finalInspectionAvailable = $noticeActive;
+    ?>
+    <tr>
+                        <td><?= htmlspecialchars($claim['client_name']) ?></td>
+                        <td><?= htmlspecialchars($claim['property_name']) ?> (<?= htmlspecialchars($claim['listing_type']) ?>)</td>
+                        <!-- Initial Inspection -->
+                        <td>
+                            <?php if ($claim['claim_status'] === 'confirmed' && !$initialInspectionSet && $agentId): ?>
+                                <div id="slot-daypicker-<?= $claim['claim_id'] ?>-initial"
+                                    class="slot-daypicker-container"
+                                    data-agent-id="<?= $agentId ?>"
+                                    data-claim-id="<?= $claim['claim_id'] ?>"
+                                    data-inspection-type="initial"></div>
+                            <?php elseif ($initialInspectionSet): ?>
+<span class="text-success"><?= htmlspecialchars($claim['meeting_datetime']) ?></span>
+<?php if ($initialAgentName): ?>
+    <br><span class="text-muted">Agent: <?= htmlspecialchars($initialAgentName) ?></span>
+<?php endif; ?>
+<?php if (!empty($claim['initial_report']['pdf_path'])): ?>
+    <br>
+    <a href="<?= htmlspecialchars($claim['initial_report']['pdf_path']) ?>" target="_blank">View Report</a>
+<?php else: ?>
+    <br><span class="text-muted">Report not uploaded</span>
+<?php endif; ?>
 
-                                <!-- Initial Inspection report -->
-                                <td>
-                                    <?= $row['meeting_report_path'] && file_exists($row['meeting_report_path']) 
-                                        ? '<a href="'.$row['meeting_report_path'].'" target="_blank">View</a>' 
-                                        : '<span class="text-muted">Pending</span>' ?>
-                                </td>
-
-                                <!-- Deposit payment status -->
-                                <td>
-                                    <?php if ($row['deposit_invoice'] && $row['deposit_proof'] && $row['deposit_status'] === 'confirmed'): ?>
-                                        <span class="text-success">Confirmed</span>
-                                    <?php elseif ($row['deposit_invoice'] || $row['deposit_proof']): ?>
-                                        <span class="text-warning">Pending</span>
-                                    <?php else: ?>
-                                        <span class="text-muted">Not available</span>
-                                    <?php endif; ?>
-                                </td>
-
-                                <!-- Contract signing meeting -->
-                                <td>
-                                    <?php if (
-                                        !$row['contract_discussion_datetime'] && $row['meeting_report_path'] && 
-                                        $row['deposit_invoice'] && $row['deposit_proof'] && $row['deposit_status'] === 'confirmed'
-                                    ): ?>
-                                        <form method="POST" action="upload-rental-contract.php">
-                                            <input type="hidden" name="claim_id" value="<?= $row['claim_id'] ?>">
-                                            <input type="datetime-local" name="contract_discussion_datetime" min="<?= date('Y-m-d H:i', strtotime('+2 hours')) ?>" required>
-                                            <button class="btn btn-sm btn-outline-primary">Save</button>
-                                        </form>
-                                    <?php elseif ($row['contract_discussion_datetime']): ?>
-                                        <?= date('Y-m-d H:i', strtotime($row['contract_discussion_datetime'])) ?>
-                                    <?php endif; ?>
-                                </td>
-
-                                <!-- Contract upload/display -->
-                                <td>
-                                    <?php if (!$row['contract_signed_path']): ?>
-                                        <?php if ($row['contract_discussion_datetime']): ?>
-                                            <form method="POST" action="upload-rental-contract.php" enctype="multipart/form-data" class="d-grid gap-1">
-                                                <input type="hidden" name="claim_id" value="<?= $row['claim_id'] ?>">
-                                                <label class="form-label small mb-0">Start Date</label>
-                                                <input type="date" name="contract_start_date" class="form-control form-control-sm" required>
-                                                <label class="form-label small mb-0">End Date</label>
-                                                <input type="date" name="contract_end_date" class="form-control form-control-sm" required>
-                                                <label class="form-label small mb-0">Upload Contract (PDF)</label>
-                                                <input type="file" name="claim_contract_file" accept="application/pdf" class="form-control form-control-sm" required>
-                                                <button class="btn btn-sm btn-primary mt-1">Submit</button>
-                                            </form>
-                                        <?php else: ?>
-                                            <span class="text-muted">Awaiting contract discussions and signing</span>
-                                        <?php endif; ?>
-                                    <?php else: ?>
-                                        <a href="<?= $row['contract_signed_path'] ?>" target="_blank">View Contract</a><br>
-                                        <?= $row['contract_start_date'] ?> to <?= $row['contract_end_date'] ?>
-                                        <?php if (!empty($row['actual_end_date'])): ?>
-                                            <div class="text-danger">Ended early: <?= $row['actual_end_date'] ?></div>
-                                        <?php endif; ?>
-                                    <?php endif; ?>
-                                </td>
-
-                                <!-- Renewal logic (requests, meetings, new contract) -->
-                                <td>
-                                    <?php if ($row['renewal_requested_datetime']): ?>
-                                        Request: <?= $row['renewal_requested_datetime'] ?><br>
-                                        <?php if (!$row['renewal_meeting_datetime'] && !$row['renewal_status']): ?>
-                                            <form method="POST" action="handle-renewal-decision.php" class="d-flex gap-1 mt-2">
-                                                <input type="hidden" name="claim_id" value="<?= $row['claim_id'] ?>">
-                                                <button name="decision" value="accepted" class="btn btn-sm btn-success">Accept</button>
-                                                <button name="decision" value="rejected" class="btn btn-sm btn-danger">Reject</button>
-                                            </form>
-                                        <?php elseif ($row['renewal_status'] === 'accepted'): ?>
-                                            <span class="text-success">Accepted</span><br>
-                                            <?php if (!$row['renewal_meeting_datetime']): ?>
-                                                <a href="schedule-renewal-meeting.php?claim_id=<?= $row['claim_id'] ?>" class="btn btn-sm btn-primary mt-1">Set Meeting</a>
+                            <?php else: ?>
+                                <span class="text-warning">Pending Payment</span>
+                            <?php endif; ?>
+                        </td>
+                        <!-- Contract Signing -->
+                        <td>
+                            <?php if ($claim['deposit_status'] === 'confirmed'): ?>
+                                <?php if (empty($claim['contract_discussion_datetime'])): ?>
+                                    <form method="post" action="set-contract-discussion.php" class="d-flex flex-column gap-1">
+                                        <input type="hidden" name="claim_id" value="<?= $claim['claim_id'] ?>">
+                                        <label>
+                                            Set Contract Discussion Meeting:
+                                            <input type="datetime-local" name="contract_discussion_datetime" class="form-control form-control-sm" required>
+                                        </label>
+                                        <button type="submit" class="btn btn-sm custom-btn mt-1">Schedule Meeting</button>
+                                    </form>
+                                <?php else: ?>
+                                    <div>
+                                        <span class="fw-bold text-success">
+                                            <?= htmlspecialchars($claim['contract_discussion_datetime']) ?>
+                                        </span>
+                                    </div>
+                                    <?php if (!empty($claim['contract_id'])): 
+                                        $isLocked = ($claim['contract_locked'] ?? 0);
+                                        $isFullySigned = (($claim['client_signature'] ?? 0) && ($claim['owner_signature'] ?? 0));
+                                    ?>
+                                        <div>
+                                            <span class="badge bg-<?= $isLocked ? 'secondary' : 'info' ?>">
+                                                <?= $isLocked ? 'Locked' : 'Editable' ?>
+                                            </span>
+                                            <?php if ($isFullySigned): ?>
+                                                <span class="badge bg-success ms-1">Fully Signed</span>
                                             <?php else: ?>
-                                                Meeting: <?= $row['renewal_meeting_datetime'] ?><br>
+                                                <span class="badge bg-warning ms-1">Pending Signature</span>
                                             <?php endif; ?>
-                                        <?php elseif ($row['renewal_status'] === 'rejected'): ?>
-                                            <span class="text-danger">Rejected</span>
-                                        <?php endif; ?>
-                                        <?php if ($row['renewed_contract_path']): ?>
-                                            <a href="<?= $row['renewed_contract_path'] ?>" target="_blank">New Contract</a><br>
-                                            End: <?= $row['renewed_contract_end_date'] ?>
-                                        <?php endif; ?>
-                                    <?php else: ?>
-                                        —
-                                    <?php endif; ?>
-                                </td>
-
-                                <!-- Warnings (collapsible) -->
-                                <td>
-                                    <?php if (!empty($row['warnings'])): ?>
-                                        <button class="btn btn-sm btn-danger" data-bs-toggle="collapse" data-bs-target="#warnings<?= $row['claim_id'] ?>">Warnings (<?= count($row['warnings']) ?>)</button>
-                                        <div class="collapse mt-1" id="warnings<?= $row['claim_id'] ?>">
-                                            <ul class="list-group">
-                                                <?php foreach ($row['warnings'] as $w): ?>
-                                                    <li class="list-group-item small">
-                                                        <strong><?= ucfirst($w['warning_type']) ?>:</strong>
-                                                        <?= htmlspecialchars($w['message']) ?><br>
-                                                        <small><?= $w['sent_at'] ?></small>
-                                                    </li>
-                                                <?php endforeach; ?>
-                                            </ul>
+                                        </div>
+                                        <a href="manage-rental-contract.php?claim_id=<?= $claim['claim_id'] ?>">
+                                            Edit Contract
+                                        </a>
+                                        <div>
+                                        <a href="sign-lease-contract.php?claim_id=<?= $claim['claim_id'] ?>">
+                                            View Contract
+                                        </a>                                            
                                         </div>
                                     <?php else: ?>
-                                        <span class="text-muted">None</span>
+                                        <span class="text-muted">No contract created yet</span>
                                     <?php endif; ?>
-                                </td>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <span class="text-muted">Wait for deposit</span>
+                            <?php endif; ?>
+                        </td>
+                        <!-- Contract Period -->
+                        <td>
+                            <?php if (!empty($claim['contract_start_date']) && !empty($claim['contract_end_date'])): ?>
+                                <?= htmlspecialchars($claim['contract_start_date']) ?> <br>to<br> <?= htmlspecialchars($claim['contract_end_date']) ?>
+                            <?php else: ?>
+                                <span class="text-muted">Not set</span>
+                            <?php endif; ?>
+                        </td>
+<!-- Final Inspection -->
+<td>
+<?php
+    $finalReportExists = !empty($claim['final_report']) && !empty($claim['final_report']['pdf_path']);
+    $finalInspectionSet = !empty($claim['final_inspection_datetime']);
+    $showFinalSlotPicker = false;
 
-                                <!-- Manual actions (end contract) -->
-                                <td>
-                                    <?php if ($row['contract_signed_path'] && !$row['actual_end_date']): ?>
-                                        <form method="POST" action="end-contract.php">
-                                            <input type="hidden" name="claim_id" value="<?= $row['claim_id'] ?>">
-                                            <button class="btn btn-sm btn-outline-danger">End Contract</button>
-                                        </form>
-                                    <?php endif; ?>
-                                </td>
+    // Slot picker is available if contract ending soon OR notice in history, AND no final inspection yet
+    if (!$finalInspectionSet) {
+        if (!empty($claim['contract_end_date'])) {
+            $now = new DateTime();
+            $contractEnd = new DateTime($claim['contract_end_date']);
+            $interval = $now->diff($contractEnd);
+            $monthsDiff = ($interval->y * 12) + $interval->m + ($interval->d > 0 ? 1 : 0);
+            // Within 3 months (in past or future)
+            if ($contractEnd <= $now || $monthsDiff <= 3) {
+                $showFinalSlotPicker = true;
+            }
+        }
+        // Any notice in history
+        if (!$showFinalSlotPicker && !empty($noticeHistory)) {
+            $showFinalSlotPicker = true;
+        }
+    }
+?>
 
-                                <!-- Final inspection scheduling -->
-                                <td>
-                                    <?php
-                                    $contractEnded = (
-                                        (!empty($row['contract_end_date']) && $row['contract_end_date'] <= date('Y-m-d')) ||
-                                        (!empty($row['renewed_contract_end_date']) && $row['renewed_contract_end_date'] <= date('Y-m-d'))
-                                    );
-                                    ?>
-                                    <?php if (!$row['final_inspection_datetime'] && $contractEnded): ?>
-                                        <form method="GET" action="assign-agent.php">
-                                            <input type="hidden" name="claim_id" value="<?= $row['claim_id'] ?>">
-                                            <input type="hidden" name="type" value="final_inspection">
-                                            <button class="btn btn-sm btn-warning">Set Final Inspection</button>
-                                        </form>
-                                    <?php elseif ($row['final_inspection_datetime']): ?>
-                                        <?= date('Y-m-d H:i', strtotime($row['final_inspection_datetime'])) ?><br>
-                                        Agent: <?= $row['final_agent_name'] ?? '—' ?>
-                                    <?php else: ?>
-                                        <span class="text-muted">Not due</span>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
+<?php if ($finalReportExists): ?>
+    <span class="text-success"><?= htmlspecialchars($claim['final_inspection_datetime']) ?></span>
+    <?php if ($finalAgentName): ?>
+        <br><span class="text-muted">Agent: <?= htmlspecialchars($finalAgentName) ?></span>
+    <?php endif; ?>
+    <br>
+    <a href="<?= htmlspecialchars($claim['final_report']['pdf_path']) ?>" target="_blank">
+        View Report
+    </a>
+<?php elseif ($showFinalSlotPicker && $agentId): ?>
+    <div id="slot-daypicker-<?= $claim['claim_id'] ?>-final"
+        class="slot-daypicker-container"
+        data-agent-id="<?= $agentId ?>"
+        data-claim-id="<?= $claim['claim_id'] ?>"
+        data-inspection-type="final"></div>
+<?php elseif ($showFinalSlotPicker): ?>
+    <span class="text-warning">Pending final inspection</span>
+<?php else: ?>
+    <span class="text-muted">Final inspection not available</span>
+<?php endif; ?>
+</td>
+
+                        <!-- Reminder for oeverdue rent-->
+                        <td>
+            <?php if (!empty($claim['warnings'])): ?>
+                <button class="btn btn-sm btn-danger" data-bs-toggle="collapse" data-bs-target="#warnings<?= $claim['claim_id'] ?>">
+                    Reminders (<?= $claim['warning_count'] ?>)
+                </button>
+                <div class="collapse mt-1" id="warnings<?= $claim['claim_id'] ?>">
+                    <ul class="list-group">
+                        <?php foreach ($claim['warnings'] as $warning): ?>
+                            <li class="list-group-item small">
+                                <strong><?= htmlspecialchars(ucfirst($warning['warning_type'])) ?>:</strong>
+                                <?= htmlspecialchars($warning['message']) ?><br>
+                                <small><?= htmlspecialchars($warning['sent_at']) ?></small>
+                            </li>
                         <?php endforeach; ?>
-                        </tbody>
-                    </table>
+                    </ul>
                 </div>
-                <a href="staff-profile.php" class="btn btn-secondary mt-4">Back to dashboard</a>
-            </main>
-        </div>
+            <?php else: ?>
+                <span class="text-muted">None</span>
+            <?php endif; ?>
+        </td>
+        <td>
+            <!-- Current active notice -->
+            <?php if ($activeNotice): ?>
+                <div class="alert alert-info p-1 mb-1">
+                    <b><?= $activeNotice['notice_type'] === 'immediate' ? 'Immediate Termination Notice' : 'Notice Period' ?></b><br>
+                    <?= htmlspecialchars($activeNotice['message']) ?><br>
+                    <small>
+                        Sent by: <?= htmlspecialchars($activeNotice['sent_by']) ?> at <?= date('d M Y H:i', strtotime($activeNotice['sent_at'])) ?><br>
+                        <?php if ($activeNotice['notice_type'] === 'immediate'): ?>
+                            <span class="badge bg-danger">Immediate Termination</span>
+                        <?php else: ?>
+                            <span class="badge bg-warning text-dark">
+                                Notice Period: <?= intval($claim['notice_period_months']) ?> months<br>
+                                Vacate by: <?= date('d M Y', strtotime($activeNotice['sent_at'] . ' +' . intval($claim['notice_period_months']) . ' months')) ?>
+                            </span>
+                        <?php endif; ?>
+                    </small>
+                    <form method="post" action="cancel-rent-notice.php" class="mt-1">
+                        <input type="hidden" name="notice_id" value="<?= $activeNotice['notice_id'] ?>">
+                        <button class="btn btn-sm btn-outline-danger">Cancel Notice</button>
+                    </form>
+                </div>
+            <?php else: ?>
+                <span class="text-muted">No active notice</span>
+                <!-- If shouldAutoNotice($claim, $activeNotice), manager should be prompted to confirm/send auto-notice -->
+            <?php endif; ?>
+            <!-- Show history if wanted -->
+            <?php if (!empty($noticeHistory)): ?>
+                <details class="mt-2">
+                    <summary>Notice History</summary>
+                    <ul class="small">
+                    <?php foreach ($noticeHistory as $n): ?>
+                        <li>
+                            [<?= date('d M Y H:i', strtotime($n['sent_at'])) ?>] 
+                            <?= htmlspecialchars($n['notice_type'] === 'immediate' ? 'Immediate' : 'Notice Period') ?>: 
+                            <?= htmlspecialchars($n['message']) ?> 
+                            <?php if ($n['status'] !== 'active'): ?>
+                                <span class="badge bg-secondary ms-2"><?= htmlspecialchars(ucfirst($n['status'])) ?></span>
+                            <?php endif; ?>
+                        </li>
+                    <?php endforeach; ?>
+                    </ul>
+                </details>
+            <?php endif; ?>
+        </td>
+                        <!-- Actions: manual notice, immediate notice -->
+<td>
+    <?php if ($noticeActive): ?>
+        <!-- Active notice exists: show only cancel button for manager -->
+        <form method="post" action="cancel-rent-notice.php" class="mt-1">
+            <input type="hidden" name="notice_id" value="<?= $activeNotice['notice_id'] ?>">
+            <button class="btn btn-sm btn-outline-danger">Cancel Notice</button>
+        </form>
+    <?php elseif ($claim['warning_count'] >= 3): ?>
+        <!-- No active notice and warning count >= 3: show send notice buttons -->
+        <?php if (shouldAutoNotice($claim, $activeNotice)): ?>
+            <div class="alert alert-warning p-1 mb-1">
+                <b>Notice Pending:</b> This client has reached 3 warnings.
+                <form method="post" action="send-rent-notice.php" class="d-inline ms-2">
+                    <input type="hidden" name="claim_id" value="<?= $claim['claim_id'] ?>">
+                    <input type="hidden" name="contract_id" value="<?= $contractId ?>">
+                    <input type="hidden" name="notice_type" value="period">
+                    <input type="hidden" name="auto" value="1">
+                    <input type="hidden" name="reason" value="Auto-notice due to repeated warnings">
+                    <button class="btn btn-sm btn-outline-warning btn-light text-danger">Send Notice</button>
+                </form>
+            </div>
+        <?php endif; ?>
+        <!-- Manager manual notice (notice period) -->
+        <form method="post" action="send-rent-notice.php" class="mb-2">
+            <input type="hidden" name="claim_id" value="<?= $claim['claim_id'] ?>">
+            <input type="hidden" name="contract_id" value="<?= $contractId ?>">
+            <input type="hidden" name="notice_type" value="period">
+            <div class="mb-1">
+                <input type="text" name="reason" class="form-control form-control-sm" placeholder="Reason/message" required>
+            </div>
+            <button class="btn btn-sm btn-warning">Send Notice (with Notice Period)</button>
+        </form>
+        <!-- Manager immediate notice -->
+        <form method="post" action="send-rent-notice.php">
+            <input type="hidden" name="claim_id" value="<?= $claim['claim_id'] ?>">
+            <input type="hidden" name="contract_id" value="<?= $contractId ?>">
+            <input type="hidden" name="notice_type" value="immediate">
+            <div class="mb-1">
+                <input type="text" name="reason" class="form-control form-control-sm" placeholder="Reason/message" required>
+            </div>
+            <button class="btn btn-sm btn-danger">Send Immediate Termination Notice</button>
+        </form>
+    <?php endif; ?>
+</td>
+                       
+                    </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </main>
     </div>
 </div>
+
 <?php include 'footer.php'; ?>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// SLOT CALENDAR for all inspection pickers
+document.querySelectorAll('.slot-daypicker-container').forEach(function(container) {
+    const agentId = container.dataset.agentId;
+    const claimId = container.dataset.claimId;
+    const inspectionType = container.dataset.inspectionType;
+    let currentDay = new Date();
+    currentDay.setHours(0,0,0,0);
+    const today = new Date(currentDay);
+    const maxDaysAhead = 90;
+    let maxDay = new Date(today);
+    maxDay.setDate(maxDay.getDate() + maxDaysAhead);
+
+    function formatDate(d) {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+    function renderDayLabel() {
+        return currentDay.toLocaleDateString(undefined, {weekday:'long', year:'numeric', month:'short', day:'numeric'});
+    }
+    function loadSlots() {
+        container.innerHTML = `<div class="text-center py-4"><div class="spinner-border"></div></div>`;
+        fetch(`get-agent-available-slots.php?agent_id=${agentId}&week_start=${formatDate(currentDay)}&num_days=1`)
+            .then(resp => resp.json())
+            .then(slots => renderDay(slots));
+    }
+    function renderDay(slots) {
+        let html = `
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <button class="btn btn-outline-secondary btn-sm custom-btn" id="prev-day-${claimId}-${inspectionType}"${currentDay <= today ? ' disabled' : ''}>&lt;</button>
+            <span class="fw-bold">${renderDayLabel()}</span>
+            <button class="btn btn-outline-secondary btn-sm custom-btn" id="next-day-${claimId}-${inspectionType}"${currentDay >= maxDay ? ' disabled' : ''}>&gt;</button>
+        </div>
+        <div class="mb-2">
+            <input type="date" class="form-control form-control-sm w-auto" id="date-jump-${claimId}-${inspectionType}" value="${formatDate(currentDay)}" min="${formatDate(today)}" max="${formatDate(maxDay)}">
+        </div>
+        <div class="d-flex flex-wrap gap-2">`;
+        let any = false;
+        slots.forEach(slot => {
+            if (slot.available) {
+                any = true;
+                html += `
+                    <form method="POST" action="set-rental-inspection.php">
+                        <input type="hidden" name="claim_id" value="${claimId}">
+                        <input type="hidden" name="inspection_type" value="${inspectionType}">
+                        <input type="hidden" name="inspection_datetime" value="${slot.start}">
+                        <button type="submit" class="btn btn-outline-primary btn-sm">
+                            ${new Date(slot.start).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})} – ${new Date(slot.end).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}
+                        </button>
+                    </form>
+                `;
+            }
+        });
+        if (!any) {
+            html += `<span class="text-muted">No slots</span>`;
+        }
+        html += `</div>`;
+        container.innerHTML = html;
+
+        // Add listeners
+        document.getElementById(`prev-day-${claimId}-${inspectionType}`).onclick = function() {
+            if (currentDay > today) {
+                currentDay.setDate(currentDay.getDate() - 1);
+                loadSlots();
+            }
+        };
+        document.getElementById(`next-day-${claimId}-${inspectionType}`).onclick = function() {
+            if (currentDay < maxDay) {
+                currentDay.setDate(currentDay.getDate() + 1);
+                loadSlots();
+            }
+        };
+        // Date jump
+        document.getElementById(`date-jump-${claimId}-${inspectionType}`).onchange = function() {
+            const picked = new Date(this.value);
+            if (!isNaN(picked.getTime())) {
+                currentDay = picked;
+                currentDay.setHours(0,0,0,0);
+                loadSlots();
+            }
+        };
+    }
+    loadSlots();
+});
+</script>
+<script src="navbar-close.js?v=1"></script>
 </body>
 </html>

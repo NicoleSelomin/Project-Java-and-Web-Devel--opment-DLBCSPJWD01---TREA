@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 15px; }
+    .header { text-align: center; font-size: 18px; font-weight: bold; }
+    .info-table td { padding: 3px 8px; }
+    .amount { font-size: 20px; font-weight: bold; color: #27ae60; }
+    .watermark { position: fixed; top: 40%; left: 30%; opacity: 0.1; font-size: 70px; color: #666; z-index: 0; pointer-events: none;}
+  </style>
+</head>
+<body>
+  
+  <div class="header">SERVICE REQUEST INVOICE</div>
+  <div class="watermark">TREA</div>
+  <table width="100%" class="info-table" style="margin-top: 10px;">
+    <tr>
+      <td>Invoice #: <b>INV-6</b></td>
+      <td>Date: 2025-06-14</td>
+    </tr>
+    <tr>
+      <td>Bill To: <b>Maxime</b></td>
+      <td>Service: <b>Rental Property Management</b></td>
+
+    </tr>
+  </table>
+  <hr>
+  <table width="100%" class="info-table">
+    <tr>
+      <td>Amount (CFA)</td>
+      <td align="right" class="amount">20,000.00</td>
+    </tr>
+  </table>
+  <hr>
+  <p align="right"><b>Total Due: <span class="amount">20,000.00</span> CFA</b></p>
+  <p>Agency Contact: info@trea.com | +237 612 345 678</p>
+</body>
+</html>

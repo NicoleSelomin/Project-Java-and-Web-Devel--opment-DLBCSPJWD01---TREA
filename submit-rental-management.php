@@ -1,129 +1,108 @@
 <?php
-/**
- * ============================================================================
- * submit-rental-management.php — TREA Real Estate Platform
- * ------------------------------------------------
- * ----------------------------------------------------------------------------
- * Handles backend processing for owner rental property management service 
- * applications on the TREA platform.
- *
- * Steps:
- *  - Collects and validates POSTed form fields for the rental property.
- *  - Creates a database placeholder for the service request.
- *  - Creates a unique folder for uploaded files using a consistent structure.
- *  - Saves all file uploads (ownership proof, property images, additional docs).
- *  - Updates the service request with file/folder info.
- *  - Inserts all specific rental details in rental_property_management_details.
- *  - Creates a pending application payment record (offline by default).
- *  - Notifies relevant staff for review/processing.
- *  - Redirects back to owner profile with success flag.
- *
- * Requirements:
- *  - User must be a logged-in property owner (see check-user-session.php).
- *  - Utilizes helper utilities for uploads, notification, and DB access.
- *  - Follows upload structure: 
- *      /uploads/owner/{owner_id}_{owner_name}/applications/{service_id}_{service_slug}/request_{request_id}/
- *  - All file names and structure are consistent across the platform.
- * ============================================================================
- */
+require_once 'check-user-session.php';
+require 'service-upload-helper.php';
+require_once 'send-service-request-notifications.php';
 
-// ----------------- SETUP & DEPENDENCIES -------------------
-require_once 'check-user-session.php';                 // Session + access control for owner
-require 'service-upload-helper.php';                    // File/folder helpers
-require_once 'send-service-request-notifications.php';  // Notification system
+$properties = $_POST['properties'] ?? [];
+$urgent = isset($_POST['urgent']) ? 1 : 0;
+$service_level = $_POST['service_level'] ?? 'management_only';
 
-// ----------------- COLLECT & VALIDATE FORM DATA -------------------
-$property_name        = trim($_POST['property_name'] ?? '');
-$location             = trim($_POST['location'] ?? '');
-$description          = trim($_POST['property_description'] ?? '');
-$number_of_bedrooms   = trim($_POST['number_of_bedrooms'] ?? '');
-$number_of_bathrooms  = trim($_POST['number_of_bathrooms'] ?? '');
-$floor_count          = trim($_POST['floor_count'] ?? '');
-$land_size            = trim($_POST['land_size'] ?? '');
-$property_type        = $_POST['property_type'] ?? 'N/A';
-$tenancy_history      = trim($_POST['tenancy_history'] ?? '');
-$rental_expectation   = $_POST['rental_expectation'] ?? null;
-$lease_terms          = trim($_POST['lease_terms'] ?? '');
-$comments             = trim($_POST['comments'] ?? '');
-$urgent_rental        = isset($_POST['urgent_rental']) ? 1 : 0;
-$service_level        = $_POST['service_level'] ?? 'management_only';
-
-// Simple required fields validation (server-side backup for client JS validation)
-if (
-    !$property_name || !$location || !$description || !$property_type ||
-    !$rental_expectation || !$tenancy_history || !$lease_terms || !$service_level
-) {
-    echo "Missing required fields.";
-    exit();
+if (empty($properties) || !$service_level) {
+    $_SESSION['form_error'] = "Missing required fields.";
+    header('Location: request-rental-property-management.php');
+    exit;
 }
 
-// ----------------- SESSION & META DATA -------------------
-$owner_id    = $_SESSION['owner_id'];
-$owner_name  = $_SESSION['user_name'];
+$owner_id   = $_SESSION['owner_id'];
+$owner_name = $_SESSION['user_name'];
 $submitted_at = date('Y-m-d H:i:s');
 
-// ----------------- SERVICE INFO -------------------
 // Lookup service_id/slug for rental property management
 $slug        = 'rental_property_management';
 $service     = getServiceInfo($slug, $pdo);
 $service_id  = $service['service_id'];
 $service_slug= $service['safe_name'];
 
-// ----------------- 1. INSERT BLANK SERVICE REQUEST -------------------
+// 1. Insert new application (multi-property group)
 $stmt = $pdo->prepare("INSERT INTO owner_service_requests (
-    owner_id, service_id, property_name, location, property_description, 
-    number_of_bedrooms, number_of_bathrooms, floor_count, land_size, submitted_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-$stmt->execute([
-    $owner_id, $service_id, $property_name, $location, $description,
-    $number_of_bedrooms, $number_of_bathrooms, $floor_count, $land_size, $submitted_at
-]);
+    owner_id, service_id, urgent, service_level, submitted_at
+) VALUES (?, ?, ?, ?, ?)");
+$stmt->execute([$owner_id, $service_id, $urgent, $service_level, $submitted_at]);
 $request_id = $pdo->lastInsertId();
 
-// ----------------- 2. CREATE UPLOAD FOLDER STRUCTURE -------------------
-$base = createApplicationFolder($owner_id, $owner_name, $service_id, $service_slug, $request_id); // With trailing slash
+// --- 2. Loop through properties ---
+$property_counter = 0;
+foreach ($properties as $i => $prop) {
+    $property_counter++;
 
-// ----------------- 3. HANDLE FILE UPLOADS -------------------
-// Save ownership proof and property image (required/optional)
-$ownership_proof_path = saveFile(
-    $_FILES['ownership_proof'], 
-    $base . 'ownership_proof.' . pathinfo($_FILES['ownership_proof']['name'], PATHINFO_EXTENSION)
-);
-$site_image_path = saveFile(
-    $_FILES['property_image'], 
-    $base . 'site_image.' . pathinfo($_FILES['property_image']['name'], PATHINFO_EXTENSION)
-);
+    $property_name        = trim($prop['property_name'] ?? '');
+    $location             = trim($prop['location'] ?? '');
+    $description          = trim($prop['property_description'] ?? '');
+    $number_of_bedrooms   = trim($prop['number_of_bedrooms'] ?? '');
+    $number_of_bathrooms  = trim($prop['number_of_bathrooms'] ?? '');
+    $floor_count          = trim($prop['floor_count'] ?? '');
+    $use_for_the_property = trim($prop['use_for_the_property'] ?? '');
+    $land_size            = trim($prop['land_size'] ?? '');
+    $property_type        = $prop['property_type'] ?? '';
+    $tenancy_history      = trim($prop['tenancy_history'] ?? '');
+    $rental_expectation   = $prop['rental_expectation'] ?? null;
+    $lease_terms          = trim($prop['lease_terms'] ?? '');
+    $comments             = trim($prop['comments'] ?? '');
 
-// Save additional documents (optional, as JSON array)
-$additional_docs = saveMultipleFiles($_FILES['additional_documents'] ?? [], $base, 'extra');
-$additional_json = !empty($additional_docs) ? json_encode($additional_docs) : null;
+    // Validate required
+    if (
+        !$property_name || !$location || !$description || !$property_type ||
+        !$rental_expectation || !$lease_terms || !$use_for_the_property
+    ) {
+        $_SESSION['form_error'] = "Missing required property fields.";
+        header('Location: request-rental-property-management.php');
+        exit;
+    }
 
-// ----------------- 4. UPDATE owner_service_requests WITH FILE DATA -------------------
-$update = $pdo->prepare("UPDATE owner_service_requests 
-    SET application_folder = ?, additional_documents = ? 
-    WHERE request_id = ?");
-$update->execute([$base, $additional_json, $request_id]);
+    // --- 2.1 Folder ---
+    $base = createApplicationFolder($owner_id, $owner_name, $service_id, $service_slug, $request_id);
+    $property_folder = $base . "property_$i/";
+    if (!is_dir($property_folder)) mkdir($property_folder, 0775, true);
 
-// ----------------- 5. INSERT RENTAL PROPERTY DETAILS -------------------
-$stmt2 = $pdo->prepare("INSERT INTO rental_property_management_details (
-    request_id, ownership_proof_path, site_image_path, 
-    property_type, tenancy_history, rental_expectation, lease_terms, urgent, comments, service_level
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-$stmt2->execute([
-    $request_id,
-    $ownership_proof_path,
-    $site_image_path,
-    $property_type,
-    $tenancy_history,
-    $rental_expectation,
-    $lease_terms,
-    $urgent_rental,
-    $comments,
-    $service_level
-]);
+    // --- 2.2 File uploads ---
+    $ownership_proof_path = saveFile(
+        $_FILES['properties']['tmp_name'][$i]['ownership_proof'],
+        $property_folder . 'ownership_proof.' . pathinfo($_FILES['properties']['name'][$i]['ownership_proof'], PATHINFO_EXTENSION)
+    );
+    $site_image_path = saveFile(
+        $_FILES['properties']['tmp_name'][$i]['property_image'],
+        $property_folder . 'site_image.' . pathinfo($_FILES['properties']['name'][$i]['property_image'], PATHINFO_EXTENSION)
+    );
+    // Additional docs (as JSON array)
+    $additional_docs = [];
+    if (!empty($_FILES['properties']['name'][$i]['additional_documents'])) {
+        foreach ($_FILES['properties']['name'][$i]['additional_documents'] as $k => $docName) {
+            if ($docName && is_uploaded_file($_FILES['properties']['tmp_name'][$i]['additional_documents'][$k])) {
+                $docPath = $property_folder . 'extra_' . $k . '_' . $docName;
+                move_uploaded_file($_FILES['properties']['tmp_name'][$i]['additional_documents'][$k], $docPath);
+                $additional_docs[] = $docPath;
+            }
+        }
+    }
+    $additional_json = !empty($additional_docs) ? json_encode($additional_docs) : null;
 
-// ----------------- 6. INSERT PENDING APPLICATION PAYMENT -------------------
-$payment_method = 'offline'; // All handled offline by default
+    // --- 2.3 Insert rental property details ---
+    $stmt2 = $pdo->prepare("INSERT INTO rental_property_management_details (
+        request_id, property_name, location, property_description,
+        number_of_bedrooms, number_of_bathrooms, floor_count, land_size, 
+        ownership_proof_path, site_image_path, property_type, tenancy_history, rental_expectation, lease_terms, use_for_the_property, comments, service_level, additional_documents, property_folder
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt2->execute([
+        $request_id, $property_name, $location, $description,
+        $number_of_bedrooms, $number_of_bathrooms, $floor_count, $land_size,
+        $ownership_proof_path, $site_image_path, $property_type, $tenancy_history,
+        $rental_expectation, $lease_terms, $use_for_the_property, $comments,
+        $service_level, $additional_json, $property_folder
+    ]);
+}
+
+// 3. Insert pending application payment
+$payment_method = 'offline';
 $insertPayment = $pdo->prepare("
     INSERT INTO service_request_payments 
         (request_id, payment_type, payment_method, payment_status, created_at)
@@ -131,11 +110,12 @@ $insertPayment = $pdo->prepare("
 ");
 $insertPayment->execute([$request_id, $payment_method]);
 
-// ----------------- 7. NOTIFY STAFF -------------------
+// 4. Notify staff
 sendServiceRequestNotifications(
-    $pdo, $owner_id, $owner_name, $service, $property_name, $slug
+    $pdo, $owner_id, $owner_name, $service, "(Multiple Properties)", $slug
 );
 
-// ----------------- 8. REDIRECT TO OWNER PROFILE -------------------
+// 5. Redirect
 header("Location: owner-profile.php?submitted=rental");
-exit();
+exit;
+?>

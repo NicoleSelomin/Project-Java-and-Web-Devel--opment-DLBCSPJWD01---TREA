@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 15px; }
+    .header { text-align: center; font-size: 18px; font-weight: bold; }
+    .info-table td { padding: 3px 8px; }
+    .amount { font-size: 20px; font-weight: bold; color: #C154C1; }
+    .watermark { position: fixed; top: 40%; left: 30%; opacity: 0.08; font-size: 70px; color: #C154C1; z-index: 0; pointer-events: none;}
+  </style>
+</head> 
+<body>
+  <div class="header">PROPERTY CLAIM INVOICE</div>
+  <div class="watermark">{{AGENCY_NAME}}</div>
+  <table width="100%" class="info-table" style="margin-top: 10px;">
+    <tr>
+      <td>Invoice #: <b>{{INVOICE_NUMBER}}</b></td>
+      <td>Date: {{INVOICE_DATE}}</td>
+    </tr>
+    <tr>
+      <td>Bill to: <b>{{INVOICE_BILL_NAME}}</b></td>
+      <td>Property: <b>{{PROPERTY_NAME}}</b></td>
+    </tr>
+  </table>
+  <hr>
+  <table width="100%" class="info-table">
+    <tr>
+      <td align="left">Amount (CFA)</td>
+      <td align="right" class="amount">{{AMOUNT}}</td>
+    </tr>
+  </table>
+  <hr>
+  <p align="left"><b>Total Due: (CFA) </b></p>
+  <p align="right"><b><span class="amount">{{AMOUNT}}</span></b></p>
+
+</body>
+</html>

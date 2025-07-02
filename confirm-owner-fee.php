@@ -23,6 +23,14 @@
 require_once 'check-user-session.php'; // Verify owner is logged in and has a valid session
 require 'db_connect.php'; // Establish database connection ($pdo)
 
+//-------------------------------------------------------------------------------
+// --- 1. Access control (Accountant and general manager only) ---
+//--------------------------------------------------------------------------------
+if (!isset($_SESSION['staff_id']) || !in_array(strtolower($_SESSION['role']), ['accountant', 'general manager'])) {
+    header("Location: staff-login.php");
+    exit();
+}
+
 // -----------------------------------------------------------------------------
 // 2. HANDLE FEE CONFIRMATION POST REQUEST
 // -----------------------------------------------------------------------------

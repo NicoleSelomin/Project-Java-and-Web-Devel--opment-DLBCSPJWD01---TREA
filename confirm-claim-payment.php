@@ -44,7 +44,7 @@ if (
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Confirm Claim Payments</title>
+    <title>Confirm Reservation Payments</title>
     <!-- Bootstrap for responsive design -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-4Q6Gf2aSP4eDXB8Miphtr37CMZZQ5oXLH2yaXMJ2w8e2ZtHTl7GptT4jmndRuHDT" crossorigin="anonymous">
     <!-- Local stylesheet with cache-busting -->
@@ -55,51 +55,68 @@ if (
 <?php include 'header.php'; ?>
 
 <!-- Main container ensures content stretches full height between header and footer -->
-<div class="container-fluid">
-  <div class="row">
-
-    <!-- Main Content Column (centered on desktop) -->
-    <main class="col-12 col-md-9">
-
+<div class="container py-5 flex-grow-1">
+  <div class="row justify-content-center">
+    <!-- Main content -->
+    <main class="col-12 col-md-10 col-lg-8">
       <!-- Section title -->
-      <div class="mb-4 p-3 border rounded shadow-sm main-title">
-        <h2 class="mb-4">Confirm Claim Payments</h2>
+      <div class="mb-4 p-3 border rounded shadow-sm main-title text-center bg-white">
+        <h2 class="mb-2">Confirm Reservation Payments</h2>
+        <h5 class="fw-light text-secondary mb-0">Choose the category of reservation to manage:</h5>
       </div>
 
-      <!-- User instruction -->
-      <h3 class="fw-bold">Choose the category of claims to manage:</h3>
-
-      <!-- List of claim categories with navigation links -->
-      <div class="list-group">
-        <!-- Brokerage claims: Sale or Rent processed via brokerage listing -->
-        <a href="confirm-brokerage-claim-payments.php" class="list-group-item list-group-item-action">
-            Brokerage-Based Claims (Sale or Rent listed via Brokerage Service)
-        </a>
-        <!-- Sale property management claims: For sale listings managed by agency -->
-        <a href="confirm-sale-claim-payments.php" class="list-group-item list-group-item-action">
-            Sale Property Management Claims
-        </a>
-        <!-- Rental property management claims: For rental listings managed by agency -->
-        <a href="confirm-rental-claim-payments.php" class="list-group-item list-group-item-action">
-            Rental Property Management Claims
-        </a>
-        <!-- Recurring rent invoices for managed rentals -->
-        <a href="confirm-rental-management-invoices.php" class="dashboard-card">
-            Manage Client Recurring Rent Payments
-        </a>
+      <!-- List of claim categories as cards -->
+       <section>
+      <div class="row g-4">
+        <div class="col-12 col-md-6">
+          <a href="confirm-brokerage-claim-payments.php" class="card h-100 shadow-sm text-decoration-none text-dark">
+            <div class="card-body">
+              <h5 class="card-title mb-2">Reserved Brokerage-Based Properties</h5>
+              <div class="card-text small">
+                Sale or Rent processed via brokerage listing
+              </div>
+            </div>
+          </a>
+        </div>
+        <div class="col-12 col-md-6">
+          <a href="confirm-rental-claim-payments.php" class="card h-100 shadow-sm text-decoration-none text-dark">
+            <div class="card-body">
+              <h5 class="card-title mb-2">Rental Property Management Reservations</h5>
+              <div class="card-text small">
+                For rental listings managed by agency
+              </div>
+            </div>
+          </a>
+        </div>
+        <div class="col-12 col-md-6">
+          <a href="confirm-rental-management-invoices.php" class="card h-100 shadow-sm text-decoration-none text-dark">
+            <div class="card-body">
+              <h5 class="card-title mb-2">Recurring Rent Payments</h5>
+              <div class="card-text small">
+                Manage client recurring rent payments for managed rentals
+              </div>
+            </div>
+          </a>
+        </div>
       </div>
+      </section>
 
       <!-- Back to staff dashboard navigation -->
-      <p class="mt-4">
-        <a href="staff-profile.php">&larr; Back to Dashboard</a>
+      <p class="mt-5 text-center">
+        <a href="staff-profile.php" class="btn btn-dark fw-bold mt-4">🡰 Back to dashboard</a>
       </p>
-
     </main>
   </div>
 </div>
 
+
 <?php include 'footer.php'; ?>
 <!-- Bootstrap JS (for responsive UI and collapse) -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js" integrity="sha384-j1CDi7MgGQ12Z7Qab0qlWQ/Qqz24Gc6BM0thvEMVjHnfYGF0rmFCozFSxQBxwHKO" crossorigin="anonymous"></script>
+
+
+<!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
+
 </body>
 </html>

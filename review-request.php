@@ -36,7 +36,7 @@ if (!isset($_SESSION['staff_id']) || !isset($_SESSION['role'])) {
 $staff_id = $_SESSION['staff_id'];
 $fullName = $_SESSION['full_name'] ?? 'Staff';
 $userId = $_SESSION['staff_id'] ?? '';
-$profilePicturePath = $_SESSION['profile_picture_path'] ?? 'default.png';
+$profilePicturePath = $_SESSION['profile_picture_path'] ?? 'images/default.png';
 
 // ------------------------------------------------------------------
 // Validate and Sanitize Request ID
@@ -72,12 +72,8 @@ if (!$request) {
 $service_specific = [];
 $tableMap = [
     'brokerage' => 'brokerage_details',
-    'sale_property_management' => 'sale_property_management_details',
-    'architecture_plan_drawing' => 'architecture_plan_details',
-    'legal_assistance' => 'legal_assistance_details',
-    'construction_supervision' => 'construction_supervision_details'
+    'rental_property_management' => 'rental_property_management_details',
 ];
-
 if (isset($tableMap[$request['slug']])) {
     $stmt2 = $pdo->prepare("SELECT * FROM {$tableMap[$request['slug']]} WHERE request_id = ?");
     $stmt2->execute([$request_id]);
@@ -85,76 +81,68 @@ if (isset($tableMap[$request['slug']])) {
 }
 
 // ------------------------------------------------------------------
-// Only allow review if inspection report (if required) is submitted
+// Initialize variables for feedback and error
 // ------------------------------------------------------------------
-if ($request['slug'] !== 'architecture_plan_drawing' && $request['inspection_result'] === 'pending') {
-    echo "<div class='alert alert-warning m-4'>You can't review this request until the agent submits their inspection report.</div>";
-    exit();
-}
+$feedback = '';
+$error = '';
 
 // ------------------------------------------------------------------
 // Handle Review Submission (POST)
 // ------------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $status = $_POST['status'];
+    $status = $_POST['status'] ?? '';
+    $feedback = trim($_POST['manager_feedback'] ?? '');
     $reviewed_at = date('Y-m-d H:i:s');
-    $rejection_reason = trim($_POST['rejection_reason'] ?? '');
 
-    // Get reviewer full name
-    $reviewerStmt = $pdo->prepare("SELECT full_name FROM staff WHERE staff_id = ?");
-    $reviewerStmt->execute([$staff_id]);
-    $reviewer = $reviewerStmt->fetchColumn();
-
-    // Generate PDF summary of review
-    $dompdf = new Dompdf();
-    $html = "
-        <h2>Service Request Review</h2>
-        <p><strong>Request ID:</strong> $request_id</p>
-        <p><strong>Owner:</strong> ".htmlspecialchars($request['owner_name'])."</p>
-        <p><strong>Service:</strong> ".htmlspecialchars($request['service_name'])."</p>
-        <p><strong>Property:</strong> ".htmlspecialchars($request['property_name'])." - ".htmlspecialchars($request['location'])."</p>
-        <p><strong>Decision:</strong> " . ucfirst($status) . "</p>
-        <p><strong>Reviewed At:</strong> $reviewed_at</p>
-        <p><strong>Reviewer:</strong> ".htmlspecialchars($reviewer)."</p>
-    ";
-    if ($status === 'rejected') {
-        $html .= "<p><strong>Rejection Reason:</strong><br>" . nl2br(htmlspecialchars($rejection_reason)) . "</p>";
-    }
-    $dompdf->loadHtml($html);
-    $dompdf->setPaper('A4', 'portrait');
-    $dompdf->render();
-
-    // Prepare save directory
-    $owner_id = $request['owner_id'];
-    $owner_name = preg_replace('/[^a-zA-Z0-9_]/', '_', strtolower($request['owner_name']));
-    $service_id = $request['service_id'];
-    $service_slug = preg_replace('/[^a-zA-Z0-9_]/', '_', strtolower($request['slug']));
-    $request_folder = "uploads/owner/{$owner_id}_{$owner_name}/applications/{$service_id}_{$service_slug}/request_{$request_id}/";
-    if (!is_dir($request_folder)) {
-        mkdir($request_folder, 0777, true);
-    }
-    $filePath = $request_folder . "manager_review.pdf";
-    file_put_contents($filePath, $dompdf->output());
-
-    // Update owner_service_requests table
-    if ($status === 'approved') {
-        $stmt = $pdo->prepare("
-            UPDATE owner_service_requests 
-            SET status = 'approved', final_status = 'approved', reviewed_at = ?, reviewed_by = ?, review_pdf_path = ?
-            WHERE request_id = ?
-        ");
-        $stmt->execute([$reviewed_at, $staff_id, $filePath, $request_id]);
+    // Validate required fields
+    if (!$status || !$feedback) {
+        $error = "Both decision and feedback are required.";
     } else {
+        // Get reviewer full name (from DB for audit)
+        $reviewerStmt = $pdo->prepare("SELECT full_name FROM staff WHERE staff_id = ?");
+        $reviewerStmt->execute([$staff_id]);
+        $reviewer = $reviewerStmt->fetchColumn();
+
+        // Generate PDF summary of review
+        $dompdf = new Dompdf();
+        $html = "
+            <h2>Service Request Review</h2>
+            <p><strong>Request ID:</strong> $request_id</p>
+            <p><strong>Owner:</strong> ".htmlspecialchars($request['owner_name'])."</p>
+            <p><strong>Service:</strong> ".htmlspecialchars($request['service_name'])."</p>
+            <p><strong>Property:</strong> ".htmlspecialchars($request['property_name'])." - ".htmlspecialchars($request['location'])."</p>
+            <p><strong>Decision:</strong> " . ucfirst($status) . "</p>
+            <p><strong>Manager Feedback:</strong><br>" . nl2br(htmlspecialchars($feedback)) . "</p>
+            <p><strong>Reviewed At:</strong> $reviewed_at</p>
+            <p><strong>Reviewer:</strong> ".htmlspecialchars($reviewer)."</p>
+        ";
+        $dompdf->loadHtml($html);
+        $dompdf->setPaper('A4', 'portrait');
+        $dompdf->render();
+
+        // Prepare save directory
+        $owner_id = $request['owner_id'];
+        $owner_name = preg_replace('/[^a-zA-Z0-9_]/', '_', strtolower($request['owner_name']));
+        $service_id = $request['service_id'];
+        $service_slug = preg_replace('/[^a-zA-Z0-9_]/', '_', strtolower($request['slug']));
+        $request_folder = "uploads/owner/{$owner_id}_{$owner_name}/applications/{$service_id}_{$service_slug}/request_{$request_id}/";
+        if (!is_dir($request_folder)) {
+            mkdir($request_folder, 0777, true);
+        }
+        $filePath = $request_folder . "manager_review.pdf";
+        file_put_contents($filePath, $dompdf->output());
+
+        // Update owner_service_requests table
         $stmt = $pdo->prepare("
             UPDATE owner_service_requests 
-            SET status = 'rejected', final_status = 'rejected', reviewed_at = ?, reviewed_by = ?, review_pdf_path = ?, agent_feedback = ?
+            SET status = ?, final_status = ?, reviewed_at = ?, reviewed_by = ?, manager_feedback = ?, review_pdf_path = ?
             WHERE request_id = ?
         ");
-        $stmt->execute([$reviewed_at, $staff_id, $filePath, $rejection_reason, $request_id]);
-    }
+        $stmt->execute([$status, $status, $reviewed_at, $staff_id, $feedback, $filePath, $request_id]);
 
-    header("Location: manage-service-requests.php?reviewed=1");
-    exit();
+        header("Location: manage-service-requests.php?reviewed=1");
+        exit();
+    }
 }
 ?>
 
@@ -175,24 +163,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <div class="container-fluid flex-grow-1">
     <div class="row">
-        <!-- Sidebar (Responsive, uniform look) -->
-        <aside class="col-12 col-md-3 mb-3">
-            <button class="btn btn-sm d-md-none mb-3 custom-btn" type="button" data-bs-toggle="collapse" data-bs-target="#sidebarCollapse" aria-expanded="false" aria-controls="sidebarCollapse">
+        <!-- Sidebar (collapsible on mobile) -->
+        <nav class="col-12 col-md-3 mb-4 mb-md-0">
+            <!-- Mobile collapse toggle (hidden on md+) -->
+            <button class="btn btn-outline-secondary btn-sm d-md-none mb-3 w-100 custom-btn"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#sidebarMenu"
+                aria-expanded="false"
+                aria-controls="sidebarMenu">
                 Menu
             </button>
-            <div class="collapse d-md-block" id="sidebarCollapse">
-                <div class="sidebar text-center py-3 px-2 border bg-white rounded shadow-sm">
-                    <div class="profile-summary mb-4">
-                        <img src="<?= htmlspecialchars($profilePicturePath) ?>" alt="Profile Picture" class="rounded-circle mb-2" width="80" height="80">
-                        <div><strong><?= htmlspecialchars($fullName) ?></strong></div>
-                        <small class="text-muted">ID: <?= htmlspecialchars($userId) ?></small>
+            <div class="collapse d-md-block" id="sidebarMenu">
+                <div class="bg-white rounded shadow-sm py-4 px-3">
+                    <!-- Profile Image and Summary -->
+                    <div class="text-center mb-4">
+                        <img src="<?= htmlspecialchars($profilePicturePath) ?>" 
+                             alt="Profile Picture"
+                             class="rounded-circle mb-3"
+                             style="width:110px; height:110px; object-fit:cover; border:2px solid #e9ecef;">
+                        <div class="fw-semibold"><?= htmlspecialchars($fullName) ?></div>
+                        <div class="text-muted small mb-2">Staff ID: <?= htmlspecialchars($userId) ?></div>
+                        <!-- Profile Actions -->
+                        <a href="notifications.php" class="btn btn-outline-primary btn-sm w-100 mb-2 profile-btn" style="background-color: #FF6EC7;">Notifications🔔</a>
+                        <a href="edit-staff-profile.php" class="btn btn-outline-secondary btn-sm w-100 mb-2 profile-btn" style="background-color: #E021BA;">Edit Profile</a>
+                        <a href="staff-logout.php" class="btn btn-outline-danger btn-sm w-100 profile-btn" style="background-color: #C154C1;">Logout</a>
                     </div>
-                    <a href="notifications.php" class="btn btn-outline-secondary w-100 mb-2">View Notifications</a>
-                    <a href="edit-staff-profile.php" class="btn btn-outline-secondary w-100 mb-2">Edit Profile</a>
-                    <a href="staff-logout.php" class="btn btn-outline-danger w-100">Logout</a>
                 </div>
             </div>
-        </aside>
+        </nav>
+        <!-- End Sidebar -->
 
         <!-- Main Content -->
         <main class="col-12 col-md-9">
@@ -219,24 +219,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <?php endif; ?>
 
                     <!-- Review Form -->
+                    <?php if ($error): ?>
+                        <div class="alert alert-danger"><?= htmlspecialchars($error) ?></div>
+                    <?php endif; ?>
                     <form method="POST" class="mb-4">
                         <div class="mb-2">
                             <label class="form-label fw-semibold">Decision:</label><br>
                             <div class="form-check form-check-inline">
-                                <input class="form-check-input" type="radio" name="status" value="approved" id="status-approved" required>
+                                <input class="form-check-input" type="radio" name="status" value="approved" id="status-approved" required <?= (isset($_POST['status']) && $_POST['status'] === 'approved') ? 'checked' : '' ?>>
                                 <label class="form-check-label" for="status-approved">Approve</label>
                             </div>
                             <div class="form-check form-check-inline">
-                                <input class="form-check-input" type="radio" name="status" value="rejected" id="status-rejected" required>
+                                <input class="form-check-input" type="radio" name="status" value="rejected" id="status-rejected" required <?= (isset($_POST['status']) && $_POST['status'] === 'rejected') ? 'checked' : '' ?>>
                                 <label class="form-check-label" for="status-rejected">Reject</label>
                             </div>
                         </div>
                         <div class="mb-3">
-                            <label for="rejection_reason" class="form-label">Rejection Reason (if rejecting):</label>
-                            <textarea name="rejection_reason" id="rejection_reason" class="form-control" rows="3"></textarea>
+                            <label class="form-label mb-1">Manager Feedback <span class="text-danger">*</span></label>
+                            <textarea name="manager_feedback" rows="6" class="form-control" required><?= htmlspecialchars($feedback) ?></textarea>
                         </div>
-                        <button type="submit" class="btn btn-primary">Submit Decision</button>
-                        <a href="manage-agent-assignments.php" class="btn btn-link">Back to Assignments</a>
+                        <button type="submit" class="btn custom-btn">Submit Decision</button>
+                        <a href="manage-service-requests.php" class="btn bg-dark text-white fw-bold my-4">🡰Back to previous page</a>
                     </form>
                 </div>
             </div>
@@ -247,5 +250,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <?php include 'footer.php'; ?>
 <!-- Bootstrap JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
 </body>
 </html>

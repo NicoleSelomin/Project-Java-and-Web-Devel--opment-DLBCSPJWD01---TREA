@@ -74,14 +74,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // ---------------------------------------------------------------------
         // User has no owner or client role assigned
         // ---------------------------------------------------------------------
-        echo "Your account exists, but no role is assigned. Please contact support.";
+        $_SESSION['error'] = "Your account exists, but no role is assigned. Please contact support.";
+        header('Location: user-login.php');
         exit;
     }
 
     // -------------------------------------------------------------------------
     // Invalid credentials
     // -------------------------------------------------------------------------
-    echo "Invalid email or password.";
+    $_SESSION['error'] = "Invalid email or password.";
+    header('Location: user-login.php');
     exit;
 }
 

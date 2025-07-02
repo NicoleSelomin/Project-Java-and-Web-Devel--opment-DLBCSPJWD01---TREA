@@ -1,301 +1,264 @@
 <?php
-/**
- * ----------------------------------------------------------------------------
- * confirm-brokerage-claim-payments.php
- * ----------------------------------------------------------------------------
- * 
- * Confirm Application Fee Payments (Accountant)
- *
- * Allows accountants to upload invoices for owner service requests and confirm payments.
- * Features:
- * - Upload invoice for application fee (PDF, JPG, PNG)
- * - View payment proof uploaded by owner
- * - Confirm payment if invoice and proof both exist
- * - Lists all owner service requests with relevant info
- *
- * Dependencies:
- * - db_connect.php
- * - Bootstrap 5.3
- * - Standard session and user checks
- * 
- * -------------------------------------------------------------------------------
- */
+/*
+|--------------------------------------------------------------------------
+| confirm-brokerage-claim-payments.php
+|--------------------------------------------------------------------------
+| Accountant: Manage brokerage claim invoices and payment confirmations
+| - Only for claims with properties where services.slug = 'brokerage'
+| - Show: Claim type (rent/client, sale/owner), Edit Invoice (via template), View proof, Confirm payment
+| - No file upload for invoice! Edit via edit-invoice.php
+|--------------------------------------------------------------------------
+*/
 
-session_start(); // Start the session for authentication and user data
-require 'db_connect.php'; // Include database connection (PDO as $pdo)
+session_start();
+require 'db_connect.php';
 
-// -----------------------------------------------------------------------------
-// 1. ACCESS CONTROL AND STAFF INFO
-// -----------------------------------------------------------------------------
-
-// Restrict page access to logged-in staff with role 'accountant'
-if (!isset($_SESSION['staff_id']) || strtolower($_SESSION['role']) !== 'accountant') {
-    // Redirect to login if not authorized
+// --- 1. Access control (Accountant and general manager only) ---
+if (!isset($_SESSION['staff_id']) || !in_array(strtolower($_SESSION['role']), ['accountant', 'general manager'])) {
     header("Location: staff-login.php");
     exit();
 }
 
-// Get current accountant's name, ID, and profile picture from session (with fallbacks)
-$fullName = $_SESSION['full_name'] ?? 'Staff';
-$userId = $_SESSION['staff_id'] ?? '';
-$profilePicture = $_SESSION['profile_picture_path'] ?? 'default.png';
+// --- 2. Handle payment confirmation ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_claim_id'])) {
+    $claim_id = $_POST['confirm_claim_id'];
+    $payment_type = $_POST['payment_type']; // 'client' or 'owner'
+    $confirmed_by = $_SESSION['staff_id'];
 
-// -----------------------------------------------------------------------------
-// 2. HANDLE POST REQUESTS: INVOICE UPLOAD AND PAYMENT CONFIRMATION
-// -----------------------------------------------------------------------------
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_id'])) {
-    // The service request we are working with
-    $requestId = $_POST['request_id'];
-    $staffId = $_SESSION['staff_id']; // The accountant's ID for tracking who confirmed
-
-    // -------------------------------------------------------------
-    // 2.1. HANDLE INVOICE FILE UPLOAD
-    // -------------------------------------------------------------
-    if (isset($_FILES['invoice_file']) && $_FILES['invoice_file']['error'] === UPLOAD_ERR_OK) {
-        // Fetch owner and service info for folder structure
-        $infoStmt = $pdo->prepare("
-            SELECT r.owner_id, u.full_name, s.service_id, s.slug
-            FROM owner_service_requests r
-            JOIN owners o ON r.owner_id = o.owner_id
-            JOIN users u ON o.user_id = u.user_id
-            JOIN services s ON r.service_id = s.service_id
-            WHERE r.request_id = ?
-        ");
-        $infoStmt->execute([$requestId]);
-        $info = $infoStmt->fetch();
-
-        // If the request_id is invalid, halt and notify
-        if (!$info) {
-            die("Invalid request data");
-        }
-
-        // Build directory path for saving the invoice
-        // Clean up the owner full name to ensure a safe folder name
-        $ownerFolder = $info['owner_id'] . '_' . preg_replace('/[^a-z0-9_]/i', '_', $info['full_name']);
-        // Service folder uses service ID and slug for clarity and uniqueness
-        $serviceFolder = $info['service_id'] . '_' . $info['slug'];
-        // Each request gets its own folder
-        $targetDir = "uploads/owner/{$ownerFolder}/applications/{$serviceFolder}/request_{$requestId}/";
-
-        // Create the directory recursively if it does not exist
-        if (!is_dir($targetDir)) {
-            mkdir($targetDir, 0777, true);
-        }
-
-        // Determine the file extension and create a standard filename
-        $ext = pathinfo($_FILES['invoice_file']['name'], PATHINFO_EXTENSION);
-        $invoicePath = $targetDir . 'invoice.' . $ext;
-        // Move the uploaded file from temporary location to the target directory
-        move_uploaded_file($_FILES['invoice_file']['tmp_name'], $invoicePath);
-
-        // Update the payment record in the database with the new invoice path
-        $update = $pdo->prepare("UPDATE service_request_payments 
-            SET invoice_path = ?, updated_at = NOW() 
-            WHERE request_id = ? AND payment_type = 'application'");
-        $update->execute([$invoicePath, $requestId]);
-
-        // Store a success message in the session for display after redirect
-        $_SESSION['confirmation_success'] = "Invoice uploaded successfully.";
-    }
-    // -------------------------------------------------------------
-    // 2.2. HANDLE PAYMENT CONFIRMATION (AFTER INVOICE AND PROOF)
-    // -------------------------------------------------------------
-    elseif (isset($_POST['confirm_only'])) {
-        // Set payment status as 'confirmed', record who and when
-        $update = $pdo->prepare("UPDATE service_request_payments 
-            SET payment_status = 'confirmed', confirmed_at = NOW(), confirmed_by = ? 
-            WHERE request_id = ? AND payment_type = 'application'");
-        $update->execute([$staffId, $requestId]);
-        // Success message for user feedback
-        $_SESSION['confirmation_success'] = "Payment confirmed.";
-    }
-
-    // Always redirect after POST to avoid double submissions (PRG pattern)
-    header("Location: confirm-application-payment.php");
+    // Confirm payment in brokerage_claim_payments
+    $stmt = $pdo->prepare("UPDATE brokerage_claim_payments
+        SET payment_status = 'confirmed', confirmed_by = ?, confirmed_at = NOW()
+        WHERE claim_id = ? AND payment_type = ?");
+    $stmt->execute([$confirmed_by, $claim_id, $payment_type]);
+    $_SESSION['success_message'] = "Payment confirmed!";
+    header("Location: confirm-brokerage-claim-payments.php");
     exit();
 }
 
-// -----------------------------------------------------------------------------
-// 3. FETCH ALL OWNER SERVICE REQUESTS AND PAYMENT STATUS FOR DISPLAY
-// -----------------------------------------------------------------------------
-
-// Get a list of all owner service requests and their application payment status
-$invoiceUploads = $pdo->query("
+// --- 3. Fetch all brokerage claims with invoice/payment info ---
+$stmt = $pdo->query("
     SELECT 
-        r.request_id, r.property_name, r.location, 
-        s.service_name, u.full_name AS owner_name, 
-        r.submitted_at,
-        p.invoice_path, p.payment_proof, p.payment_status
-    FROM owner_service_requests r
-    JOIN owners o ON r.owner_id = o.owner_id
-    JOIN users u ON o.user_id = u.user_id
-    JOIN services s ON r.service_id = s.service_id
-    JOIN service_request_payments p ON r.request_id = p.request_id AND p.payment_type = 'application'
-    ORDER BY r.submitted_at DESC
-")->fetchAll(PDO::FETCH_ASSOC);
+        cc.claim_id, cc.claim_type, cc.claim_status, cc.claim_source,
+        p.property_name, p.location, p.property_id,
+        s.service_name, s.slug,
+        cu.full_name AS client_name,
+        o.owner_id, ou.full_name AS owner_name,
+        cb.invoice_path, cb.payment_proof, cb.payment_status, cb.payment_type,
+        osr.request_id
+    FROM client_claims cc
+    JOIN properties p ON cc.property_id = p.property_id
+    JOIN services s ON p.service_id = s.service_id
+    LEFT JOIN clients c ON cc.client_id = c.client_id
+    LEFT JOIN users cu ON c.user_id = cu.user_id
+    LEFT JOIN owners o ON p.owner_id = o.owner_id
+    LEFT JOIN users ou ON o.user_id = ou.user_id
+    LEFT JOIN brokerage_claim_payments cb ON cc.claim_id = cb.claim_id
+    LEFT JOIN owner_service_requests osr ON p.request_id = osr.request_id    
+    WHERE s.slug = 'brokerage'
+    ORDER BY cc.claimed_at DESC
+");
+$claims = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Use default placeholder if profile picture file is missing or not set
-$profilePicturePath = (!empty($profilePicture) && file_exists($profilePicture))
-    ? $profilePicture
-    : 'default.png';
+// Group claims by claim_type
+$rentalClaims = [];
+$saleClaims = [];
+foreach ($claims as $row) {
+    if ($row['claim_type'] === 'rent') $rentalClaims[] = $row;
+    elseif ($row['claim_type'] === 'sale') $saleClaims[] = $row;
+}
 ?>
-
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Confirm Application Fees</title>
-  <!-- Bootstrap for responsive design -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-4Q6Gf2aSP4eDXB8Miphtr37CMZZQ5oXLH2yaXMJ2w8e2ZtHTl7GptT4jmndRuHDT" crossorigin="anonymous">
-  <!-- Local stylesheet, cache-busted per refresh -->
+  <title>Confirm Brokerage Reservation Payments</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="styles.css?v=<?= time() ?>">
 </head>
 <body class="d-flex flex-column min-vh-100 bg-light">
 <?php include 'header.php'; ?>
 
-<div class="container-fluid">
-  <div class="row">
+<div class="container py-4 flex-grow-1">
+    <h2 class="mb-4">Confirm Brokerage Claim Payments</h2>
 
-    <!-- =======================================================================
-         SIDEBAR: ACCOUNTANT PROFILE AND NAVIGATION
-         ======================================================================= -->
-    <div class="col-12 col-md-3 mb-3">
-      <!-- Mobile menu toggle -->
-      <button class="btn btn-sm d-md-none mb-3 custom-btn" type="button" data-bs-toggle="collapse" data-bs-target="#sidebarCollapse" aria-expanded="false" aria-controls="sidebarCollapse">
-        Open Menu
-      </button>
-      <!-- Sidebar contents (always visible on desktop, collapsible on mobile) -->
-      <div class="collapse d-md-block" id="sidebarCollapse">
-        <div class="sidebar text-center">
-          <!-- Profile info block -->
-          <div class="profile-summary text-center">
-            <img src="<?= htmlspecialchars($profilePicturePath) ?>" alt="Profile Picture" class="mb-3">
-            <p><strong><?= htmlspecialchars($fullName) ?></strong></p>
-            <p>ID: <?= htmlspecialchars($userId) ?></p>
-            <!-- Navigation shortcuts -->
-            <a href="notifications.php" class="btn mt-3 bg-light w-100">View Notifications</a>
-            <a href="edit-staff-profile.php" class="btn mt-3 bg-light w-100">Edit Profile</a>
-            <a href="staff-logout.php" class="btn text-danger mt-3 d-block bg-light w-100">Logout</a>
-          </div>
-          <!-- Optional: Embedded Google Calendar -->
-          <div>
-            <h5 class="mt-5">Calendar</h5>
-            <iframe src="https://calendar.google.com/calendar/embed?mode=MONTH" frameborder="0" scrolling="no"></iframe>
-          </div>
+    <?php if (isset($_SESSION['success_message'])): ?>
+        <div class="alert alert-success"><?= $_SESSION['success_message']; unset($_SESSION['success_message']); ?></div>
+    <?php endif; ?>
+
+    <ul class="nav nav-tabs mb-3" id="claimTabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active custom-btn" id="rent-tab" data-bs-toggle="tab" data-bs-target="#rent" type="button" role="tab">Reserved Rental Properties (Client)</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link custom-btn" id="sale-tab" data-bs-toggle="tab" data-bs-target="#sale" type="button" role="tab">Reserved Sale properties (Owner)</button>
+      </li>
+    </ul>
+    <div class="tab-content" id="claimTabsContent">
+
+      <!-- RENT CLAIMS: Invoice for Client -->
+      <div class="tab-pane fade show active" id="rent" role="tabpanel">
+        <div class="table-responsive">
+        <table class="table table-bordered align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>Property</th>
+                    <th>Client</th>
+                    <th>Invoice</th>
+                    <th>Payment Proof</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (empty($rentalClaims)): ?>
+                  <tr><td colspan="6" class="text-center text-muted">No reserved rental properties found.</td></tr>
+                <?php else: ?>
+                  <?php foreach ($rentalClaims as $claim): ?>
+                    <tr>
+                      <td>
+                        <strong><?= htmlspecialchars($claim['property_name']) ?></strong><br>
+                        <small><?= htmlspecialchars($claim['location']) ?></small>
+                      </td>
+                      <td><?= htmlspecialchars($claim['client_name']) ?></td>
+                      <td>
+                        <?php if ($claim['invoice_path']): ?>
+                          <a href="<?= $claim['invoice_path'] ?>" target="_blank" class="btn btn-sm btn-outline-primary">View Invoice</a>
+                        <?php else: ?>
+                          <a href="edit-invoice.php?request_id=<?= $claim['claim_id'] ?>&type=client" class="btn btn-sm custom-btn">Edit/Issue Invoice</a>
+                        <?php endif; ?>
+                      </td>
+                      <td>
+                        <?php if ($claim['payment_proof']): ?>
+                          <a href="<?= $claim['payment_proof'] ?>" target="_blank">View</a>
+                        <?php else: ?>
+                          <span class="text-muted">Waiting for proof</span>
+                        <?php endif; ?>
+                      </td>
+                      <td>
+                        <?php
+                          if (!$claim['invoice_path']) echo '<span class="badge bg-secondary status-badge">Not Issued</span>';
+                          elseif (!$claim['payment_proof']) echo '<span class="badge bg-warning status-badge">Awaiting Payment</span>';
+                          elseif ($claim['payment_status'] === 'confirmed') echo '<span class="badge bg-success status-badge">Confirmed</span>';
+                          else echo '<span class="badge bg-info status-badge">Awaiting Confirmation</span>';
+                        ?>
+                      </td>
+                      <td>
+                        <?php if (
+                          $claim['invoice_path'] && $claim['payment_proof'] && $claim['payment_status'] !== 'confirmed'
+                        ): ?>
+                          <form method="POST" style="display:inline;">
+                            <input type="hidden" name="confirm_claim_id" value="<?= $claim['claim_id'] ?>">
+                            <input type="hidden" name="payment_type" value="client">
+                            <button class="btn btn-success btn-sm">Confirm Payment</button>
+                          </form>
+                        <?php endif; ?>
+                      </td>
+                    </tr>
+                  <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
         </div>
       </div>
-    </div>
 
-    <!-- =======================================================================
-         MAIN CONTENT AREA
-         ======================================================================= -->
-    <main class="col-12 col-md-9">
-      <!-- Page title / section -->
-      <div class="mb-4 p-3 border rounded shadow-sm main-title">
-        <h2>Confirm Application Fee Payments</h2>
-      </div>
-
-      <!-- Session feedback (success/error messages after POST actions) -->
-      <?php if (isset($_SESSION['confirmation_success'])): ?>
-        <div class="alert alert-success"><?= $_SESSION['confirmation_success'] ?></div>
-        <?php unset($_SESSION['confirmation_success']); ?>
-      <?php endif; ?>
-
-      <!-- Section header for invoice upload -->
-      <div class="mb-4 p-3 border rounded shadow-sm">
-        <h4>Upload Invoices</h4>
-      </div>
-
-      <!-- Table listing all service requests that can be actioned -->
-      <div class="table-responsive">
-        <table class="table table-bordered">
-          <thead class="table-light">
-            <tr>
-              <th>Owner</th>
-              <th>Service</th>
-              <th>Property</th>
-              <th>Location</th>
-              <th>Submitted</th>
-              <th>Invoice</th>
-              <th>Payment Proof</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            <!-- Show table rows for each application (if available) -->
-            <?php if ($invoiceUploads): ?>
-              <?php foreach ($invoiceUploads as $row): ?>
+      <!-- SALE CLAIMS: Invoice for Owner -->
+      <div class="tab-pane fade" id="sale" role="tabpanel">
+        <div class="table-responsive">
+        <table class="table table-bordered align-middle">
+            <thead class="table-light">
                 <tr>
-                  <!-- Owner's name (from users table via join) -->
-                  <td><?= htmlspecialchars($row['owner_name']) ?></td>
-                  <!-- Name of the service being requested -->
-                  <td><?= htmlspecialchars($row['service_name']) ?></td>
-                  <!-- Property name submitted by owner -->
-                  <td><?= htmlspecialchars($row['property_name']) ?></td>
-                  <!-- Location information as recorded -->
-                  <td><?= htmlspecialchars($row['location']) ?></td>
-                  <!-- Date request was submitted -->
-                  <td><?= date('Y-m-d', strtotime($row['submitted_at'])) ?></td>
-                  <!-- INVOICE UPLOAD/VIEW: Show file upload if not present, otherwise show view link -->
-                  <td>
-                    <?php if (empty($row['invoice_path'])): ?>
-                      <!-- If invoice not uploaded, show upload form -->
-                      <form method="POST" enctype="multipart/form-data">
-                        <input type="hidden" name="request_id" value="<?= $row['request_id'] ?>">
-                        <input type="file" name="invoice_file" accept=".pdf,.jpg,.jpeg,.png" class="form-control form-control-sm mb-1" required>
-                        <button type="submit" class="btn btn-sm btn-primary">Upload</button>
-                      </form>
-                    <?php else: ?>
-                      <!-- If invoice exists, show download/view link -->
-                      <a href="<?= htmlspecialchars($row['invoice_path']) ?>" target="_blank">View Invoice</a>
-                    <?php endif; ?>
-                  </td>
-                  <!-- PAYMENT PROOF: Uploaded by owner -->
-                  <td>
-                    <?php if (!empty($row['payment_proof'])): ?>
-                      <a href="<?= htmlspecialchars($row['payment_proof']) ?>" target="_blank">View Proof</a>
-                    <?php else: ?>
-                      <span class="text-muted">Awaiting proof</span>
-                    <?php endif; ?>
-                  </td>
-                  <!-- ACTION: Show confirm button if ready, badge if confirmed, or waiting otherwise -->
-                  <td>
-                    <?php if (
-                      !empty($row['invoice_path']) &&
-                      !empty($row['payment_proof']) &&
-                      $row['payment_status'] !== 'confirmed'
-                    ): ?>
-                      <!-- Show confirmation form if both files uploaded, but not yet confirmed -->
-                      <form method="POST">
-                        <input type="hidden" name="request_id" value="<?= $row['request_id'] ?>">
-                        <input type="hidden" name="confirm_only" value="1">
-                        <button class="btn btn-sm btn-success">Confirm</button>
-                      </form>
-                    <?php elseif ($row['payment_status'] === 'confirmed'): ?>
-                      <!-- Already confirmed, show badge -->
-                      <span class="badge bg-success">Confirmed</span>
-                    <?php else: ?>
-                      <!-- Not ready to confirm -->
-                      <span class="text-muted">Waiting</span>
-                    <?php endif; ?>
-                  </td>
+                    <th>Property</th>
+                    <th>Owner</th>
+                    <th>Invoice</th>
+                    <th>Payment Proof</th>
+                    <th>Status</th>
+                    <th>Actions</th>
                 </tr>
-              <?php endforeach; ?>
-            <?php else: ?>
-              <!-- If no applications found, show a muted placeholder -->
-              <tr><td colspan="8" class="text-muted text-center">No applications found.</td></tr>
-            <?php endif; ?>
-          </tbody>
+            </thead>
+            <tbody>
+                <?php if (empty($saleClaims)): ?>
+                  <tr><td colspan="6" class="text-center text-muted">No reserved sale properties found.</td></tr>
+                <?php else: ?>
+                  <?php foreach ($saleClaims as $claim): ?>
+                    <tr>
+                      <td>
+                        <strong><?= htmlspecialchars($claim['property_name']) ?></strong><br>
+                        <small><?= htmlspecialchars($claim['location']) ?></small>
+                      </td>
+                      <td><?= htmlspecialchars($claim['owner_name']) ?></td>
+                      <td>
+                        <?php if ($claim['invoice_path']): ?>
+                          <a href="<?= $claim['invoice_path'] ?>" target="_blank" class="btn btn-sm btn-outline-primary">View Invoice</a>
+                        <?php else: ?>
+                          <a href="edit-invoice.php?request_id=<?= $claim['claim_id'] ?>&type=owner" class="btn btn-sm custom-btn">Edit/Issue Invoice</a>
+                        <?php endif; ?>
+                      </td>
+                      <td>
+                        <?php if ($claim['payment_proof']): ?>
+                          <a href="<?= $claim['payment_proof'] ?>" target="_blank">View</a>
+                        <?php else: ?>
+                          <span class="text-muted">Waiting for proof</span>
+                        <?php endif; ?>
+                      </td>
+                      <td>
+                        <?php
+                          if (!$claim['invoice_path']) echo '<span class="badge bg-secondary status-badge">Not Issued</span>';
+                          elseif (!$claim['payment_proof']) echo '<span class="badge bg-warning status-badge">Awaiting Payment</span>';
+                          elseif ($claim['payment_status'] === 'confirmed') echo '<span class="badge bg-success status-badge">Confirmed</span>';
+                          else echo '<span class="badge bg-info status-badge">Awaiting Confirmation</span>';
+                        ?>
+                      </td>
+                      <td>
+                        <?php if (
+                          $claim['invoice_path'] && $claim['payment_proof'] && $claim['payment_status'] !== 'confirmed'
+                        ): ?>
+                          <form method="POST" style="display:inline;">
+                            <input type="hidden" name="confirm_claim_id" value="<?= $claim['claim_id'] ?>">
+                            <input type="hidden" name="payment_type" value="owner">
+                            <button class="btn btn-success btn-sm">Confirm Payment</button>
+                          </form>
+                        <?php endif; ?>
+                      </td>
+                    </tr>
+                  <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
         </table>
+        </div>
       </div>
-    </main>
-  </div>
+
+    </div> <!-- /.tab-content -->
+    <a href="confirm-claim-payment.php" class="btn btn-dark fw-bold mt-4">🡰 Back to previous page</a>
 </div>
 
 <?php include 'footer.php'; ?>
-<!-- Bootstrap JS (for sidebar and UI) -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js" integrity="sha384-j1CDi7MgGQ12Z7Qab0qlWQ/Qqz24Gc6BM0thvEMVjHnfYGF0rmFCozFSxQBxwHKO" crossorigin="anonymous"></script>
+
+<script>
+// --- Remember active tab across reloads ---
+document.addEventListener("DOMContentLoaded", function() {
+    // Set last active tab on click
+    document.querySelectorAll('button[data-bs-toggle="tab"]').forEach(function(tabBtn) {
+        tabBtn.addEventListener('shown.bs.tab', function (e) {
+            localStorage.setItem('active-claim-tab', e.target.id);
+        });
+    });
+
+    // Restore last tab (if any)
+    var lastTab = localStorage.getItem('active-claim-tab');
+    if (lastTab) {
+        var trigger = document.getElementById(lastTab);
+        if (trigger) {
+            var tab = new bootstrap.Tab(trigger);
+            tab.show();
+        }
+    }
+});
+</script>
+
+<!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

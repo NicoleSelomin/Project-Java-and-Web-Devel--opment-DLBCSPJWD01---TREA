@@ -1,4 +1,25 @@
 {
-  "file_uploaded": "A new {file} has been uploaded for {entity}.",
-  "file_upload_confirmation": "You successfully uploaded a {file} for {entity}."
+  "termination_notice_general_client": "Lease termination notice request for {property}. Sent by {sender_name} (tenant). Reason: {reason}. Notice period requested: {notice_period} days (proposed end date: {date}). Please review.",
+  "termination_notice_general_client_title": "Tenant-Initiated Lease Termination Notice",
+
+  "termination_notice_general_manager": "Lease termination notice for {property}. Sent by {sender_name} (manager/agency). You are required to vacate within {notice_period} days (by {date}). Reason: {reason}",
+  "termination_notice_general_manager_title": "Lease Termination Notice",
+
+  "termination_due_to_overdue": "NOTICE TO VACATE: Your rent for {property} is severely overdue. Sent by {sender_name}. You are hereby notified to vacate the premises within {notice_period} days. End date: {date}.",
+  "termination_due_to_overdue_title": "Notice to Vacate (Overdue Rent)",
+
+  "immediate_termination": "IMMEDIATE TERMINATION: Your lease for {property} is terminated effective immediately by {sender_name} due to serious violation or non-payment. Vacate the premises today.",
+  "immediate_termination_title": "Immediate Lease Termination",
+
+  "contract_end_reminder": "REMINDER: Your lease for {property} will expire on {date}. Sent by {sender_name}. Please contact management if you wish to extend or renew.",
+  "contract_end_reminder_title": "Lease Expiry Reminder",
+
+  "termination_notice_cancelled": "Lease termination notice for {property} has been cancelled. If you have questions, contact {sender_name}.",
+  "termination_notice_cancelled_title": "Termination Notice Cancelled",
+
+  "service_request_submitted": "A new {service_name} application has been submitted for property: {property_name}.",
+  "service_request_submitted_title": "New {service_name} Application",
+
+  "service_request_received": "You have submitted a {service_name} application for property: {property_name}. We will review and contact you soon.",
+  "service_request_received_title": "{service_name} Application Submitted"
 }

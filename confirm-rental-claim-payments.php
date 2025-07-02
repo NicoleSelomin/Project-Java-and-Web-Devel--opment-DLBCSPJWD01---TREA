@@ -25,10 +25,11 @@ require 'db_connect.php';
 // -----------------------------------------------------------------------------
 // 1. ACCESS CONTROL: Only allow accountants
 // -----------------------------------------------------------------------------
-if (!isset($_SESSION['staff_id']) || strtolower($_SESSION['role']) !== 'accountant') {
+if (!isset($_SESSION['staff_id']) || !in_array(strtolower($_SESSION['role']), ['accountant', 'general manager'])) {
     header("Location: staff-login.php");
     exit();
 }
+
 $staff_id = $_SESSION['staff_id'];
 
 // -----------------------------------------------------------------------------
@@ -117,7 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['payment_id']) && !iss
             $check = $pdo->prepare("SELECT 1 FROM rental_contracts WHERE claim_id = ?");
             $check->execute([$claimData['claim_id']]);
             if (!$check->fetch()) {
-                $insert = $pdo->prepare("INSERT INTO rental_contracts (claim_id) VALUES (?)");
+                $insert = $pdo->prepare("INSERT INTO rental_contracts (claim_id, contract_status) VALUES (?, 'pending')");
                 $insert->execute([$claimData['claim_id']]);
             }
             // Set property to 'unavailable' after claim payment is confirmed
@@ -146,7 +147,7 @@ $sql = "
 SELECT cc.claim_id, cc.client_id, cc.property_id, cc.claimed_at, cc.claim_source, cc.claim_type,
        u.full_name AS client_name, p.property_name, p.location, p.image,
        rc.contract_signed_path, rc.contract_start_date, rc.contract_end_date,
-       rc.actual_end_date, rc.renewed_contract_path, rc.renewed_contract_end_date,
+       rc.actual_end_date,
        cc.meeting_report_path,
        rcp.payment_id, rcp.payment_type, rcp.invoice_path, rcp.payment_proof,
        rcp.payment_status, rcp.confirmed_by, rcp.confirmed_at
@@ -169,6 +170,20 @@ foreach ($rows as $row) {
     $claims[$row['claim_id']]['info'] = $row;
     $claims[$row['claim_id']]['payments'][] = $row;
 }
+
+// Fetch initial inspection report status for each claim
+$reportStmt = $pdo->prepare("
+    SELECT status, pdf_path FROM inspection_reports
+    WHERE claim_id = ? AND inspection_type = 'initial'
+    LIMIT 1
+");
+foreach ($claims as $claim_id => &$claimRow) {
+    $reportStmt->execute([$claim_id]);
+    $report = $reportStmt->fetch(PDO::FETCH_ASSOC);
+    $claimRow['initial_report_status'] = $report['status'] ?? null;
+    $claimRow['initial_report_pdf'] = $report['pdf_path'] ?? null;
+}
+unset($claimRow);
 ?>
 
 <!DOCTYPE html>
@@ -176,7 +191,7 @@ foreach ($rows as $row) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Confirm Claim Payments</title>
+  <title>Confirm Reservation Payments</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="styles.css?v=<?= time() ?>">
 </head>
@@ -186,19 +201,23 @@ foreach ($rows as $row) {
 <div class="container-fluid d-flex flex-grow-1 flex-column p-0">
   <div class="row flex-grow-1 g-0">
     <main class="container py-5">
-      <h2 class="mb-4 text-primary">Confirm Claim & Deposit Payments</h2>
+      <h2 class="mb-4 text-primary">Confirm Reservation & Deposit Payments</h2>
 
       <!-- Table and forms rendered in a separate view for maintainability -->
       <?php include 'views/confirm-rental-claim-payments.view.php'; ?>
 
       <p class="mt-4">
-        <a href="staff-profile.php" class="btn btn-outline-secondary">← Back to Dashboard</a>
+        <a href="confirm-claim-payment.php" class="btn btn-dark fw-bold mt-4">🡰 Back to previous page</a>
       </p>
     </main>
-  </div>
+  </div> 
 </div>
 
 <?php include 'footer.php'; ?>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
+
 </body>
 </html>

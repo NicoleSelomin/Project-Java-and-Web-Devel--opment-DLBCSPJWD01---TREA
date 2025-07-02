@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 15px; }
+    .watermark { position: fixed; top: 40%; left: 30%; opacity: 0.08; font-size: 70px; color: #C154C1; z-index: 0; pointer-events: none;}
+    .required-field { color: #e74c3c; background: #fdecea; padding: 1px 3px; border-radius: 3px; }
+    .info-table td {
+      border: 1px solid #bbb;
+      padding: 8px 12px;
+      vertical-align: middle;
+    }
+    .info-table tr:last-child td {
+      font-size: 1.05em;
+    }
+  </style>
+</head>
+<body>
+
+  <div style="position:fixed;top:40%;left:0;width:100%;text-align:center;font-size:4em;color:#C154C1;opacity:0.07;transform:rotate(-30deg);z-index:9999;pointer-events:none;">
+      TREA
+  </div>
+  <h1 style="text-align:center;">LEASE AGREEMENT</h1>
+  <p style="text-align: center; font-weight: bold;">
+      Between the parties hereinafter named, the present contract has been concluded for the lease of an apartment located at
+      <strong>{{PROPERTY_LOCATION}}</strong>
+  </p>
+
+  <h2 style="font-weight: bold; text-align: center;">TITLE 1: PARTIES TO THIS CONTRACT</h2>
+  <div>
+      <strong>{{OWNER_NAME}}</strong><br>
+      {{OWNER_PHONE}}<br>
+      {{OWNER_EMAIL}}<br>
+      <em>Hereinafter referred to as "the landlord" of the first part</em>
+      <br><br>
+      <strong>{{CLIENT_NAME}}</strong><br>
+      {{CLIENT_PHONE}}<br>
+      {{CLIENT_EMAIL}}<br>
+      <em>Hereinafter referred to as "the tenant" of the second part</em>
+      <br><br>
+      <strong>{{AGENCY_NAME}}</strong><br>
+      {{AGENCY_ADDRESS}}<br>
+      Represented by General Manager: <strong>{{MANAGER_NAME}}</strong><br>
+      {{AGENCY_PHONE}}<br>
+      {{AGENCY_EMAIL}}<br>
+      <em>Hereinafter referred to as "the manager" of the third part</em>
+  </div>
+
+  <div class="watermark">{{AGENCY_NAME}}</div>
+
+  <h2 style="font-weight: bold; text-align: center;">TITLE II: AGREEMENT</h2>
+
+  <div class="article" style="font-weight: bold; text-align: center;">Article 1: Purpose of this contract and designation</div>
+  <p>
+      <strong>{{CLIENT_NAME}}</strong>, who accepts a(n) {{PROPERTY_TYPE}} located at <strong>{{PROPERTY_LOCATION}}</strong>,
+      declares that {{PRONOUN}} knows the leased premises well, having visited them and found them suitable for their intended use.
+  </p>
+
+  <div class="article" style="font-weight: bold; text-align: center;">Article 2: Purpose and Description</div>
+  <p>
+      The rented {{PROPERTY_TYPE}} is intended for {{USE_FOR_THE_PROPERTY}} use.
+  </p>
+
+  <div class="article" style="font-weight: bold; text-align: center;">Article 3: Duration of the contract</div>
+  <ul>
+      <li>
+        The rental duration is set at
+        <strong>{{CONTRACT_DURATION}}</strong>,
+        renewable by tacit agreement if the good collaboration between the parties remains undisturbed.
+      </li>
+      <li>
+        In case of irregularity in rent payments, the manager may terminate the lease during its validity by giving the tenant a written notice of
+        {{NOTICE_PERIOD}}.
+      </li>
+  </ul>
+  <p>
+      <strong>Note:</strong>
+      Any delay in rent payment after
+      {{GRACE_PERIOD_DAYS}}
+      days is penalized with a fine of
+      {{PENALTY_RATE}}
+      on the due rent.
+  </p>
+
+<!-- Lease Payment Summary Table -->
+<h5 class="mt-4 mb-2">Article 4: Rent amount</h5>
+<div class="table-responsive mb-3">
+<table width="100%" class="info-table" style="margin-top: 10px; border-collapse: collapse;">
+  <tr>
+    <td><b><br>Payment Frequency: </b></td>
+    <td>{{PAYMENT_FREQUENCY}}</td>
+    <td><b><br>Monthly Rent: </b></td>
+    <td>{{MONTHLY_RENT}}</td>
+  </tr>
+  <tr>
+    <td><b><br>Penalty Rate: </b></td>
+    <td>{{PENALTY_RATE}}</td>
+    <td><b><br>Grace Period (days): </b></td>
+    <td>{{GRACE_PERIOD_DAYS}}</td>
+  </tr>
+  <tr>
+    <td><b><br>Advance ({{ADVANCE_MONTHS}} months): </b></td>
+    <td>{{ADVANCE_AMOUNT}}</td>
+    <td><b><br>Deposit for Utilities: </b></td>
+    <td>{{DEPOSIT_AMOUNT}}</td>
+  </tr>
+  <tr style="background: #e6ffe6;">
+    <td><b><br>Total: </b></td>
+    <td colspan="3" style="font-weight: bold;">
+        {{TOTAL_AMOUNT}}
+    </td>
+  </tr>
+</table>
+</div>
+
+  <ul>
+      <li>The tenant will pay to the landlord, who acknowledges receipt by issuing a rent receipt, the sum of
+          <strong>{{TOTAL_AMOUNT}}</strong>
+          CFA Francs representing
+          <strong>{{ADVANCE_MONTHS}}</strong>
+          advance rent, and
+          <strong>{{DEPOSIT_AMOUNT}} CFA Francs</strong>
+          as a deposit for water and electricity.
+      </li>
+      <li><strong>Total: {{TOTAL_AMOUNT}}.</strong></li>
+  </ul><br>
+
+  <div class="article" style="font-weight: bold; text-align: center;">Article 5: Charges and conditions</div>
+  <p>The agreement is made under the following charges and conditions, which the landlord and tenant commit to fulfill.</p>
+  <strong>The landlord must:</strong>
+  <ol type="a">
+      <li>Make the premises available to the tenant, free of any occupation, in good condition for use and repair.</li>
+      <li>Guarantee the tenant’s enjoyment of the rented premises.</li>
+      <li>Assume full responsibility for the payment of any other charges related to the real estate that are or may be imposed on the property including the leased premises.</li>
+      <li>Undertake, for the duration of the contract, all major repairs concerning the house (walls, ceiling, maintenance and repair of water and electrical conduits).</li>
+  </ol>
+  <strong>The tenant agrees:</strong>
+  <ol type="e">
+      <li>To take the property in its current state, acknowledging having visited it before moving in. An addendum to this contract may be established by mutual agreement regarding the state of the premises and installed equipment.</li>
+      <li>To maintain the building in good repair (carry out routine maintenance such as interior painting, minor plumbing and electrical work) for the duration of the contract, and to return them at the end of the lease in their present condition, except for normal wear and tear.</li>
+      <li>Not to undertake any alterations in the premises without the express written consent of the landlord.</li>
+      <li>To pay municipal taxes and other charges incumbent on the tenant, and to assume responsibility for all charges related to their residence (water, electricity).</li>
+      <li>To return the keys at the end of the contract in the same condition and, if necessary, settle with the landlord all restoration costs, for which a receipt will be given.</li>
+      <li>To immediately inform the landlord of any damages or accidents of any kind that occur in the rented premises and whose repair is the landlord’s responsibility; the tenant will allow the landlord to carry out said repairs without 
+        requesting compensation or rent reduction unless part of the premises becomes uninhabitable, in which case, if repairs take more than <strong>three (3) months of rent</strong>, the tenant will agree with the landlord on reimbursement terms.</li>
+      <li>Every month started is due (as a month begins on the 1st and ends on the 30th or 31st).</li>
+      <li>To pay for repainting in case of termination, the cost of which will be determined by the painter’s estimate or the tenant may repaint.</li>
+      <li>To respect the rules of good neighborliness.</li>
+      <li>Not to transfer the room to anyone else or sublet without the landlord’s prior consent.</li>
+  </ol>
+
+  <div class="article" style="font-weight: bold; text-align: center;">Article 6: Termination</div>
+  <p>
+      The party initiating termination must inform the other by extrajudicial act at least
+      <strong>{{NOTICE_PERIOD}} months</strong>
+      before the expiration of the contract, by a termination letter or at the end of the latest extension.
+  </p>
+  <p>
+      Failure to comply with this article 6 will result in a
+      <strong>{{PENALTY_AMOUNT}} CFA</strong>
+      deducted from the deposit.
+  </p>
+  <p>
+      However, in case of force majeure, observing
+      <strong>{{NOTICE_PERIOD}} months’ notice</strong>
+      during the contract may lead to its termination.
+  </p>
+
+  <div class="article" style="font-weight: bold; text-align: center;">Article 7: Special clauses</div>
+  <ul>
+      <li>Failure to pay even one month’s rent leads to the immediate termination of the contract; the tenant must vacate the property at the end of the unpaid month.</li>
+      <li>Notice of termination does not suspend the monthly rent payment.</li>
+      <li>
+          <strong>Note:</strong> In case of non-compliance with the exit notice, the tenant will be summoned by a court bailiff whose fees will be borne by the tenant and deducted from their advance rent.
+      </li>
+      <li>In case of dispute or fighting in the house, the tenants involved are immediately expelled from the house without prior notice.</li>
+      <li>The tenant will recover their advance after:
+          <ul>
+              <li>An inspection carried out with the agency.</li>
+              <li>A clearance on electricity and water.</li>
+              <li>Any other related damages.</li>
+          </ul>
+      </li>
+  </ul>
+
+  <div class="article" style="font-weight: bold; text-align: center;">Article 8: Rent review</div>
+  <p>
+      It is expressly agreed between the parties that the rent amount above may be revised
+      <strong>{{REVISION_FREQUENCY}}</strong>.
+  </p>
+
+  <div class="article" style="font-weight: bold; text-align: center;">Article 9: Dispute resolution</div>
+  <p>
+      Any disputes arising during the execution of this contract will be settled amicably. Failing that, the parties submit to the jurisdiction of the Court of First Instance of
+      <strong>{{PROPERTY_LOCATION}}</strong>.
+  </p>
+
+  <div class="article" style="font-weight: bold; text-align: center;">Article 10: Election of domicile</div>
+  <p>
+      For the execution of this contract, each party elects domicile at the addresses mentioned above.
+  </p>
+
+  <div class="article" style="font-weight: bold; text-align: center;">Article 11: Entry into force</div>
+  <p>
+      This contract takes effect from
+      <strong>{{CONTRACT_START_DATE}}</strong>
+      to
+      <strong>{{CONTRACT_END_DATE}}</strong>.
+  </p>
+
+<!-- SIGNATURE SECTION -->
+<div class="row mt-5 g-3 justify-content-between">
+    <div class="col-12 col-md-5 text-center mb-4 mb-md-0">
+      <p><strong>Owner</strong> (Enter Your Signature Here)</p>
+      {{OWNER_SIGNATURE_BLOCK}}
+      <p>{{OWNER_NAME}}</p>
+      <p>Date: {{OWNER_SIGNATURE_DATE}}</p>
+    </div>
+    <div class="col-12 col-md-5 text-center">
+      <p><strong>Tenant</strong> (Enter Your Signature Here)</p>
+      {{CLIENT_SIGNATURE_BLOCK}}
+      <p>{{CLIENT_NAME}}</p>
+      <p>Date: {{CLIENT_SIGNATURE_DATE}}</p>
+    </div>
+</div>
+
+</body>
+</html>

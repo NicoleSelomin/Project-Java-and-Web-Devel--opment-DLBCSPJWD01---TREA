@@ -12,7 +12,7 @@
 */
 
 // Required files for authentication and database connection
-require 'check-owner-session.php';
+require 'check-user-session.php';
 require 'db_connect.php';
 
 // Retrieve the current owner's ID from session
@@ -25,7 +25,7 @@ $stmt = $pdo->prepare("
     JOIN client_claims cc ON f.claim_id = cc.claim_id
     JOIN owner_service_requests osr ON cc.claim_id = osr.request_id
     JOIN properties p ON cc.property_id = p.property_id
-    JOIN rental_property_details rpd ON f.detail_id = rpd.detail_id
+    JOIN rental_property_management_details rpd ON f.detail_id = rpd.detail_id
     WHERE p.owner_id = ?
     ORDER BY f.created_at DESC
 ");
@@ -47,13 +47,16 @@ $fees = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <!-- Custom Styles -->
     <link rel="stylesheet" href="styles.css?v=<?= time() ?>">
 </head>
-<body class="bg-light">
+<body class="d-flex flex-column min-vh-100 bg-light">
 
 <!-- Include site-wide header -->
 <?php include 'header.php'; ?>
 
+<div class="container-fluid flex-grow-1 py-4">
+    <div class="row">
+
 <!-- Main Content Container -->
-<main class="container py-5">
+<main class="col-12 col-md-11 ms-lg-5">
 
     <!-- Page Heading -->
     <h2 class="text-primary mb-4">Rental Property Fee Breakdown</h2>
@@ -153,7 +156,11 @@ $fees = $stmt->fetchAll(PDO::FETCH_ASSOC);
         </div>
     <?php endif; ?>
 
+    <a href="cowner-profile.php" class="btn bg-dark text-white fw-bold">🡰 Back to dashboard</a>
+
 </main>
+</div>
+</div>
 
 <!-- Include site-wide footer -->
 <?php include 'footer.php'; ?>
@@ -162,5 +169,9 @@ $fees = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"
         integrity="sha384-j1CDi7MgGQ12Z7Qab0qlWQ/Qqz24Gc6BM0thvEMVjHnfYGF0rmFCozFSxQBxwHKO"
         crossorigin="anonymous"></script>
+
+<!-- Script to close main navbar on small screen-->
+<script src="navbar-close.js?v=1"></script>
+
 </body>
 </html>

@@ -1,10 +1,11 @@
 <?php
 // manage-rental-contract.php
+// Handles agency-side editing and extension of rental contracts, with proper state and signature rules.
 
 session_start();
 require 'db_connect.php';
 
-// --- 1. AUTH ---
+// --- 1. AUTH: Only property/general managers allowed ---
 $staff_id = $_SESSION['staff_id'] ?? null;
 $role = strtolower(trim($_SESSION['role'] ?? ''));
 if (!$staff_id || !in_array($role, ['general manager', 'property manager'])) {
@@ -20,7 +21,7 @@ $stmt = $pdo->prepare("
     SELECT cc.*, p.property_id, p.property_name, p.location AS property_location, p.property_type, p.request_id, p.price AS monthly_rent,
         o.owner_id, uo.full_name AS owner_name, uo.phone_number AS owner_phone, uo.email AS owner_email,
         cl.client_id, uc.full_name AS client_name, uc.phone_number AS client_phone, uc.email AS client_email,
-        st.full_name AS manager_name,
+        st.staff_id AS manager_id, st.full_name AS manager_name,
         rpd.use_for_the_property,
         rc.contract_id, rc.contract_body, rc.locked, rc.contract_signed_path, rc.contract_start_date, rc.contract_end_date, rc.revision_frequency, rc.revision_unit,
         rc.next_revision_date, rc.payment_frequency, rc.grace_period_days, rc.notice_period_months, rc.penalty_rate, rc.amount,
@@ -47,7 +48,7 @@ $deposit_row = $pay_stmt->fetch(PDO::FETCH_ASSOC);
 
 $advance_amount = floatval($deposit_row['advance_amount'] ?? 0);
 $advance_months = intval($deposit_row['number_of_month'] ?? 1);
-$deposit_amount = floatval($deposit_row['deposit_amount'] ?? 0);
+$deposit_amount = floatval($deposit_row['deposit_amount'] ?? 0); 
 $total_amount = floatval($deposit_row['amount'] ?? ($advance_amount + $deposit_amount));
 
 // --- 4. FILE/FOLDER PATHS ---
@@ -114,7 +115,10 @@ function contract_placeholders($row, $advance_amount, $advance_months, $deposit_
     ];
 }
 
-// --- 6. STATE & PERMISSIONS ---
+// --- 6. STATE & PERMISSIONS LOGIC (with support for extension) ---
+// NOTE: We allow contract to be "unlocked for editing" for extension only by general manager.
+// The signature fields are **never** cleared just because of an unlock; only after a new version is saved & locked for signing again.
+
 $locked        = $row['locked'] ?? 0;
 $hasSignature  = ($row['client_signature'] ?? 0) || ($row['owner_signature'] ?? 0);
 $can_lock      = ($role === 'general manager') && !$locked && !$hasSignature;
@@ -134,7 +138,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['restore_from_template
     }
 }
 
-// --- 8. POST: LOCK/UNLOCK ---
+// --- 8. POST: LOCK/UNLOCK (For extension: unlocks for edit, but signatures are not erased) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['lock_contract']) && $can_lock) {
     $revFreq = $row['revision_frequency'] ?? 1;
     $revUnit = strtolower($row['revision_unit'] ?? 'year');
@@ -148,6 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['lock_contract']) && $
     header("Location: manage-rental-contract.php?claim_id=$claim_id&locked=1");
     exit();
 }
+// For extension: General manager can unlock ONLY for contract about to end. Signatures are kept intact.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['unlock_contract']) && $can_unlock) {
     $stmt = $pdo->prepare("UPDATE rental_contracts SET locked = 0, next_revision_date = NULL, updated_at = NOW() WHERE claim_id = ?");
     $stmt->execute([$claim_id]);
@@ -155,8 +160,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['unlock_contract']) &&
     exit();
 }
 
-// --- 9. POST: SAVE CONTRACT (if unlocked/not signed) ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$locked && !$hasSignature && isset($_POST['contract_start_date'])) {
+// --- 9. POST: SAVE CONTRACT (allow editing on unlock for extension, signatures NOT auto-cleared) ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$locked && isset($_POST['contract_start_date'])) {
     $contract_start_date = $_POST['contract_start_date'] ?? null;
     $contract_end_date = $_POST['contract_end_date'] ?? null;
     $monthly_rent = $_POST['monthly_rent'] ?? null;
@@ -173,7 +178,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$locked && !$hasSignature && isset
     $updateDetails = $pdo->prepare("UPDATE rental_property_management_details SET use_for_the_property = ? WHERE request_id = ?");
     $updateDetails->execute([$use_for_the_property, $row['request_id']]);
 
-    // Save to contract table
+    // Save to contract table - **DO NOT erase signatures** (client_signature, owner_signature)
     $updateContract = $pdo->prepare("
         UPDATE rental_contracts SET 
             contract_start_date = ?, contract_end_date = ?, amount = ?, 
@@ -205,7 +210,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$locked && !$hasSignature && isset
     exit();
 }
 
-// --- 10. LOAD CONTRACT CONTENT ---
+// --- 10. LOAD CONTRACT CONTENT (for preview/readonly) ---
 $content = '';
 if (file_exists($contract_file_path) && filesize($contract_file_path) > 0) {
     $content = file_get_contents($contract_file_path);
@@ -247,7 +252,14 @@ $page_title = 'Edit Lease Contract for ' . htmlspecialchars($row['property_name'
         <?php endif; ?>
     </div>
     <p class="text-muted mb-4">
-        Modify the lease contract fields below. Once locked <b>or signed by any party</b>, no further edits are allowed until the next revision period.
+        <?php if ($locked): ?>
+            Contract is locked. If extension is required, unlock and revise the contract. Owner/tenant signatures are preserved until a new revision is signed.
+        <?php elseif ($hasSignature): ?>
+            Contract is signed. Unlock for extension or amendment if tenant wishes to renew.<br>
+            <span class="text-warning">Signatures are preserved during the extension period until contract is saved & relocked for a new signature round.</span>
+        <?php else: ?>
+            Modify the lease contract fields below. Once locked or signed by any party, no further edits are allowed until next revision or extension window.
+        <?php endif; ?>
     </p>
     <?php if (isset($_GET['saved'])): ?>
         <div class="alert alert-success">Lease contract saved.</div>
@@ -256,7 +268,7 @@ $page_title = 'Edit Lease Contract for ' . htmlspecialchars($row['property_name'
         <div class="alert alert-info">Contract is now locked. Please proceed to the signature page.</div>
     <?php endif; ?>
     <?php if (isset($_GET['unlocked'])): ?>
-        <div class="alert alert-warning">Contract unlocked. You may now edit the contract.</div>
+        <div class="alert alert-warning">Contract unlocked for editing. Owner and tenant can still view the contract; no edits allowed from their side.</div>
     <?php endif; ?>
     <?php if (isset($_GET['restored'])): ?>
         <div class="alert alert-secondary">Contract has been restored from template.</div>
@@ -278,9 +290,9 @@ $page_title = 'Edit Lease Contract for ' . htmlspecialchars($row['property_name'
                     Unlock Contract
                 </button>
             </form>
-            <span class="text-muted small ms-2">(Allowed since revision date passed and not signed)</span>
+            <span class="text-muted small ms-2">(Allowed if contract ending soon or for extension/renewal window.)</span>
         <?php endif; ?>
-        <?php if (!$locked && !$hasSignature): ?>
+        <?php if (!$locked): ?>
             <form method="POST" style="display:inline;">
                 <button type="submit" name="restore_from_template" class="btn btn-outline-secondary ms-2"
                         onclick="return confirm('Restore contract from template? This will OVERWRITE current content!')">
@@ -291,8 +303,10 @@ $page_title = 'Edit Lease Contract for ' . htmlspecialchars($row['property_name'
     <?php endif; ?>
     </div>
 
-    <?php if ($locked || $hasSignature): ?>
-        <div class="border p-3 bg-white" style="min-height:600px"></div>
+    <?php if ($locked): ?>
+        <div class="border p-3 bg-white" style="min-height:600px">
+            <?= $content // contract preview ?>
+        </div>
         <div class="alert alert-info mt-3">
             Contract is locked or signed.<br>
             Please <a href="sign-lease-contract.php?claim_id=<?= urlencode($claim_id) ?>" class="alert-link">go to the signature page</a> to complete the signing process.

@@ -1,7 +1,7 @@
 <?php
 require_once 'check-user-session.php';
 require 'service-upload-helper.php';
-require_once 'send-service-request-notifications.php';
+require_once 'notification-helper.php';
 
 $properties = $_POST['properties'] ?? [];
 $urgent = isset($_POST['urgent']) ? 1 : 0;
@@ -110,11 +110,39 @@ $insertPayment = $pdo->prepare("
 ");
 $insertPayment->execute([$request_id, $payment_method]);
 
-// 4. Notify staff
-sendServiceRequestNotifications(
-    $pdo, $owner_id, $owner_name, $service, "(Multiple Properties)", $slug
+// 4. Notify staff and owner
+notify(
+    $pdo,
+    $owner_id,
+    'property_owner',
+    'service_request_received',
+    [
+        '{service_name}'  => $service['display_name'] ?? 'rental_property_management',
+        '{property_name}' => $property_name,
+    ],
+    "owner-service-requests.php?request_id=$request_id"
 );
 
+// Notify Property Manager or General Manager
+
+$staff_stmt = $pdo->query("SELECT staff_id FROM staff WHERE role IN ('General Manager', 'Property Manager')");
+foreach ($staff_stmt as $row) {
+    notify(
+        $pdo,
+        $row['staff_id'],
+        'staff',
+        'service_request_submitted',
+        [
+            '{service_name}'  => $service['display_name'] ?? 'rental_proeprty_management',
+            '{property_name}' => $property_name,
+        ],
+        "manage-service-requests.php?request_id=$request_id",
+        true,
+        $owner_id,
+        'property_owner',
+        $owner_name
+    );
+}
 // 5. Redirect
 header("Location: owner-profile.php?submitted=rental");
 exit;

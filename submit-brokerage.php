@@ -14,7 +14,7 @@
  */
 
 require_once 'check-user-session.php';                 // Owner authentication/session
-require_once 'send-service-request-notifications.php';  // Staff notification utility
+require_once 'notification-helper.php';
 require_once 'service-upload-helper.php';               // File/folder helper functions
 
 // 1. Fetch session/user data
@@ -125,10 +125,39 @@ $insertPayment = $pdo->prepare("
 ");
 $insertPayment->execute([$request_id, 'offline']);
 
-// 11. Notify staff (email, dashboard, etc)
-sendServiceRequestNotifications(
-    $pdo, $owner_id, $owner_name, $service, $property_name, $slug
+// 11. Notify staff and applicant (email, dashboard, etc)
+notify(
+    $pdo,
+    $owner_id,
+    'property_owner',
+    'service_request_received',
+    [
+        '{service_name}'  => $service['display_name'] ?? 'brokerage',
+        '{property_name}' => $property_name,
+    ],
+    "owner-service-requests.php?request_id=$request_id"
 );
+
+// Notify Property Manager or General Manager
+
+$staff_stmt = $pdo->query("SELECT staff_id FROM staff WHERE role IN ('General Manager', 'Property Manager')");
+foreach ($staff_stmt as $row) {
+    notify(
+        $pdo,
+        $row['staff_id'],
+        'staff',
+        'service_request_submitted',
+        [
+            '{service_name}'  => $service['display_name'] ?? 'brokerage',
+            '{property_name}' => $property_name,
+        ],
+        "manage-service-requests.php?request_id=$request_id",
+        true,
+        $owner_id,
+        'property_owner',
+        $owner_name
+    );
+}
 
 // 12. Redirect owner to profile (with success param)
 header("Location: owner-profile.php?submitted=brokerage");

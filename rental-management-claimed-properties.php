@@ -130,21 +130,22 @@ function shouldAutoNotice($claim, $activeNotice) {
             <div class="text-end mb-4"><a href="staff-profile.php" class="btn btn-dark">Back to Dashboard</a></div>
             <div class="table-responsive">
                 <table class="table table-bordered table-hover align-middle">
-                    <thead class="table-dark">
-                        <tr>
-                            <th>Client</th>
-                            <th>Property</th>
-                            <th>Initial Inspection</th>
-                            <th>Contract Signing</th>
-                            <th>Contract Period</th>
-                            <th>Final Inspection</th>
-                            <th>Warnings</th>
-                            <th>Notice</th>
-                            <th>Actions</th>                            
-                        </tr>
-                    </thead>
-                    <tbody>
- <?php foreach ($claims as $claim): ?>
+<thead class="table-dark">
+    <tr>
+        <th>Client</th>
+        <th>Property</th>
+        <th>Initial Inspection</th>
+        <th>Contract Signing</th>
+        <th>Contract Period</th>
+        <th>Extension</th>
+        <th>Final Inspection</th>
+        <th>Warnings</th>
+        <th>Notice</th>
+        <th>Actions</th>                            
+    </tr>
+</thead>
+<tbody>
+<?php foreach ($claims as $claim): ?>
     <?php
     // Get agent names for initial/final inspection
 $initialAgentName = '';
@@ -255,6 +256,23 @@ if (!empty($claim['final_inspection_agent_id'])) {
                                 <span class="text-muted">Not set</span>
                             <?php endif; ?>
                         </td>
+
+                        <!--Contract extension-->
+
+                            <td>
+        <?php
+        // Show extension count or extension status
+        if (isset($claim['extension_count']) && $claim['extension_count'] > 0) {
+            echo '<span class="badge bg-info">Extended ×' . intval($claim['extension_count']) . '</span>';
+            if (!empty($claim['last_extension_date'])) {
+                echo '<br><small>Last: ' . htmlspecialchars($claim['last_extension_date']) . '</small>';
+            }
+        } else {
+            echo '<span class="text-muted">No extension</span>';
+        }
+        ?>
+    </td>
+    
 <!-- Final Inspection -->
 <td>
 <?php

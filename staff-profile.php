@@ -239,7 +239,6 @@ $profilePicturePath = (!empty($staff['profile_picture']) && file_exists($staff['
                         dashboard_card("manage-service-requests.php", "Manage Service Requests");
                         dashboard_card("manage-client-visits.php", "Manage Client Visits");
                         dashboard_card("manage-claimed-properties.php", "Manage Claimed Properties");
-                        dashboard_card("manage-client-claims.php", "Manage Client Claims");
                         dashboard_card("confirm-application-payment.php", "Confirm Application Fees");
                         dashboard_card("confirm-claim-payment.php", "Confirm Claim Payments");
                         dashboard_card("agent-assignments.php", "My Assignments");
@@ -250,7 +249,6 @@ $profilePicturePath = (!empty($staff['profile_picture']) && file_exists($staff['
                         dashboard_card("manage-service-requests.php", "Manage Service Requests");
                         dashboard_card("manage-client-visits.php", "Manage Client Visits");
                         dashboard_card("manage-claimed-properties.php", "Claimed Properties");
-                        dashboard_card("manage-client-claims.php", "Client Claims");
                         break;
 
                     case 'accountant':

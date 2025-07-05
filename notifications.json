@@ -21,5 +21,14 @@
   "service_request_submitted_title": "New {service_name} Application",
 
   "service_request_received": "You have submitted a {service_name} application for property: {property_name}. We will review and contact you soon.",
-  "service_request_received_title": "{service_name} Application Submitted"
-}
+  "service_request_received_title": "{service_name} Application Submitted",
+
+  "owner_fee_report_uploaded": "Your rental fee report for {month} for property '{property}' has been prepared and the transfer has been made to your account. You can view details and receipts in your dashboard.",
+  "owner_fee_report_uploaded_title": "Rental Fee for {month} Transferred",
+
+  "contract_expiring_soon_client": "Your rental contract for <b>{property_name}</b> will end on {contract_end_date}. If you wish to extend, please contact the agency as soon as possible.",
+  "contract_expiring_soon_client_title": "Your Lease Contract Is Ending Soon",
+
+  "contract_expiring_soon_manager": "The rental contract for <b>{property_name}</b> will expire on {contract_end_date}. Please check with the tenant if they wish to extend their contract.",
+  "contract_expiring_soon_manager_title": "Contract Expiry Alert"
+} 

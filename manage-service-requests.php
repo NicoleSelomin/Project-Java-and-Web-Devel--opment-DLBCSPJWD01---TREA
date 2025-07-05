@@ -8,23 +8,18 @@
 
 session_start();
 require 'db_connect.php';
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
 
-// ------------- Access Control -------------
-if (!isset($_SESSION['staff_id']) || !in_array(strtolower($_SESSION['role']), [
-    'general manager', 'property manager'
-])) {
+// Access Control
+if (!isset($_SESSION['staff_id']) || !in_array(strtolower($_SESSION['role']), ['general manager', 'property manager'])) {
     header("Location: staff-login.php"); exit();
 }
-
 $role = strtolower($_SESSION['role'] ?? '');
-if (!$role) {
-    header("Location: staff-login.php"); exit();
-}
-
 $fullName = $_SESSION['full_name'] ?? 'Staff';
 $userId = $_SESSION['staff_id'] ?? '';
 
-// agent availability slot
+// Helper: Create agent slots
 function createAgentAvailableSlots($pdo, $agentId, $daysAhead = 7, $slotMinutes = 120, $startHour = 9, $endHour = 19) {
     $now = new DateTime();
     for ($d = 0; $d < $daysAhead; $d++) {
@@ -32,7 +27,6 @@ function createAgentAvailableSlots($pdo, $agentId, $daysAhead = 7, $slotMinutes 
         for ($h = $startHour; $h <= $endHour - ($slotMinutes / 60); $h++) {
             $slotStart = (clone $date)->setTime($h, 0);
             $slotEnd = (clone $slotStart)->modify("+$slotMinutes minutes");
-            // Avoid duplicate slots
             $stmt = $pdo->prepare("SELECT COUNT(*) FROM agent_schedule WHERE agent_id = ? AND start_time = ?");
             $stmt->execute([$agentId, $slotStart->format('Y-m-d H:i:s')]);
             if (!$stmt->fetchColumn()) {
@@ -43,77 +37,55 @@ function createAgentAvailableSlots($pdo, $agentId, $daysAhead = 7, $slotMinutes 
     }
 }
 
-// ------------- Handle Agent Assignment (with schedule block) -------------
+// Handle Agent Assignment
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['agent_id'], $_POST['inspection_datetime'], $_POST['request_id'])) {
     $agentId = $_POST['agent_id'];
     $inspectionDatetime = $_POST['inspection_datetime'];
     $requestId = $_POST['request_id'];
-  
-// Check if the agent needs fresh available slots
-$stmt = $pdo->prepare("SELECT COUNT(*) FROM agent_schedule WHERE agent_id = ? AND status = 'available' AND start_time >= NOW()");
-$stmt->execute([$agentId]);
-$availableSlotsCount = $stmt->fetchColumn();
 
-if ($availableSlotsCount < 5) { // arbitrary low number triggers fresh slot creation
-    createAgentAvailableSlots($pdo, $agentId);
-}
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM agent_schedule WHERE agent_id = ? AND status = 'available' AND start_time >= NOW()");
+    $stmt->execute([$agentId]);
+    if ($stmt->fetchColumn() < 5) createAgentAvailableSlots($pdo, $agentId);
 
-    // Check for agent conflicts (blocked slots)
-$stmt = $pdo->prepare("
-    SELECT COUNT(*) FROM agent_schedule
-    WHERE agent_id = ?
-      AND status = 'booked'
-      AND (
-        (start_time < DATE_ADD(?, INTERVAL 2 HOUR) AND end_time > ?)
-      )
-");
-$stmt->execute([$agentId, $inspectionDatetime, $inspectionDatetime]);
-$conflicts = $stmt->fetchColumn();
-
-    if ($conflicts) {
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*) FROM agent_schedule
+        WHERE agent_id = ? AND status = 'booked'
+        AND (start_time < DATE_ADD(?, INTERVAL 2 HOUR) AND end_time > ?)
+    ");
+    $stmt->execute([$agentId, $inspectionDatetime, $inspectionDatetime]);
+    if ($stmt->fetchColumn()) {
         $_SESSION['assignment_success'] = "This agent is not available at that time!";
     } else {
-        // Update request assignment
         $assign = $pdo->prepare("UPDATE owner_service_requests SET assigned_agent_id = ?, inspection_datetime = ? WHERE request_id = ?");
         $assign->execute([$agentId, $inspectionDatetime, $requestId]);
-
-        // Add to agent_schedule (duration 2 hours)
         $endTime = date('Y-m-d H:i:s', strtotime($inspectionDatetime . " +2 hours"));
         $insert = $pdo->prepare("INSERT INTO agent_schedule
-        (agent_id, property_id, event_type, start_time, end_time, status, notes)
-        VALUES (?, (SELECT property_id FROM owner_service_requests WHERE request_id = ?), 'inspection', ?, ?, 'booked', ?)");
-
+            (agent_id, property_id, event_type, start_time, end_time, status, notes)
+            VALUES (?, (SELECT request_id FROM owner_service_requests WHERE request_id = ?), 'inspection', ?, ?, 'booked', ?)");
         $insert->execute([$agentId, $requestId, $inspectionDatetime, $endTime, 'Initial inspection for request #' . $requestId]);
-
         createAgentAvailableSlots($pdo, $agentId);
-
         $_SESSION['assignment_success'] = "Agent assigned!";
     }
-
-    header("Location: manage-service-requests.php");
-    exit();
+    header("Location: manage-service-requests.php"); exit();
 }
 
-// ------------- Handle Owner–Client Meeting Scheduling -------------
+// Handle Owner–Client Meeting Scheduling
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['set_meeting_request_id'], $_POST['owner_contract_meeting'])) {
     $requestId = $_POST['set_meeting_request_id'];
     $meetingDate = $_POST['owner_contract_meeting'];
-
     $setMeeting = $pdo->prepare("UPDATE owner_service_requests SET owner_contract_meeting = ? WHERE request_id = ?");
     $setMeeting->execute([$meetingDate, $requestId]);
     $_SESSION['assignment_success'] = "Owner–Client Meeting Scheduled!";
-
-    header("Location: manage-service-requests.php");
-    exit();
+    header("Location: manage-service-requests.php"); exit();
 }
 
-// ------------- Role-Based Service Filter -------------
+// Role-Based Service Filter
 $allowedServices = [
     'general manager' => [],
     'property manager' => ['rental_property_management', 'brokerage'],
 ];
 
-// ------------- Fetch Requests for Display -------------
+// Fetch requests for display (basic info)
 $sql = "
 SELECT 
     r.request_id, r.property_name, r.location, r.submitted_at,
@@ -122,7 +94,7 @@ SELECT
     r.assigned_agent_id, ag.full_name AS agent_name, r.inspection_datetime, r.agent_report_path,
     r.review_pdf_path, r.status, r.final_status,
     p.payment_status AS application_payment_status, p.confirmed_at AS payment_confirmed_at,
-    r.owner_contract_meeting, r.owner_contract_path, r.listed
+    r.owner_contract_meeting
 FROM owner_service_requests r
 JOIN owners o ON r.owner_id = o.owner_id
 JOIN users u ON o.user_id = u.user_id
@@ -137,8 +109,8 @@ if (!empty($allowedServices[$role])) {
     $sql .= " WHERE s.slug IN ($placeholders)";
 }
 $sql .= " ORDER BY 
-  CASE WHEN r.final_status IS NULL OR r.final_status = '' THEN 0 ELSE 1 END ASC,
-  r.submitted_at DESC
+    CASE WHEN r.final_status IS NULL OR r.final_status = '' THEN 0 ELSE 1 END ASC,
+    r.submitted_at DESC
 ";
 try {
     if (!empty($allowedServices[$role])) {
@@ -152,6 +124,34 @@ try {
     $requests = [];
 }
 
+// --- Contract/Listing tab: Join owner_agency_contracts ---
+$contractTabRows = [];
+if ($requests) {
+    $ids = array_column($requests, 'request_id');
+    if ($ids) {
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $csql = "SELECT c.*, r.owner_contract_meeting, s.service_name, u.full_name AS applicant_name
+                 FROM owner_agency_contracts c
+                 JOIN owner_service_requests r ON c.contract_id = r.request_id
+                 JOIN owners o ON r.owner_id = o.owner_id
+                 JOIN users u ON o.user_id = u.user_id
+                 JOIN services s ON r.service_id = s.service_id
+                 WHERE c.contract_id IN ($in)
+                 ORDER BY c.created_at DESC";
+        $cstmt = $pdo->prepare($csql);
+        $cstmt->execute($ids);
+        $contractTabRows = $cstmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+}
+
+// --- Processing/Contract tab splitting for UI ---
+$processingRequests = [];
+foreach ($requests as $row) {
+    if (empty($row['review_pdf_path'])) {
+        $processingRequests[] = $row;
+    }
+}
+
 // --------- Progress Stage Helper ----------
 function getProgressStage($row) {
     if (empty($row['application_payment_status'])) return "Application Received";
@@ -160,21 +160,8 @@ function getProgressStage($row) {
     if ($row['assigned_agent_id'] && empty($row['agent_report_path'])) return "Inspection Assigned";
     if ($row['agent_report_path'] && empty($row['review_pdf_path'])) return "Agent Report Submitted";
     if ($row['review_pdf_path'] && empty($row['owner_contract_meeting'])) return "Manager Review";
-    if ($row['owner_contract_meeting'] && empty($row['owner_contract_path'])) return "Meeting Scheduled";
-    if ($row['owner_contract_path'] && !$row['listed']) return "Contract Uploaded";
-    if ($row['listed']) return "Listed";
+    if ($row['owner_contract_meeting']) return "Meeting Scheduled";
     return "Processing";
-}
-
-// --------- Split requests for UI display ----------
-$processingRequests = [];
-$postContractRequests = []; 
-foreach ($requests as $row) {
-    if (!empty($row['review_pdf_path'])) {
-        $postContractRequests[] = $row;
-    } else {
-        $processingRequests[] = $row;
-    }
 }
 ?>
 
@@ -347,7 +334,7 @@ foreach ($requests as $row) {
   <div class="tab-pane fade" id="contract" role="tabpanel" aria-labelledby="contract-tab">
 
     <!-- CONTRACT & LISTING TABLE -->
-    <?php if (count($postContractRequests)): ?>
+    <?php if (count($contractTabRows)): ?>
     <h4 class="mb-3">2. Contract & Listing</h4>
     <div class="table-responsive">
       <table class="table table-bordered table-striped align-middle small">
@@ -358,101 +345,51 @@ foreach ($requests as $row) {
             <th>Meeting</th>
             <th>Owner Contract</th>
             <th>Listing</th>
-            <th>Progress</th>
-            <th>Final Status</th>
+            <th>Status</th>
+            <th>Final Work</th>
           </tr>
         </thead>
         <tbody>
-          <?php foreach ($postContractRequests as $row): ?>
+          <?php foreach ($contractTabRows as $row): ?>
             <tr>
               <td><?= htmlspecialchars($row['applicant_name']) ?></td>
               <td><?= htmlspecialchars($row['service_name']) ?></td>
               <td>
-                <?php if ($row['owner_contract_meeting']): ?>
-                  <?= date('Y-m-d H:i', strtotime($row['owner_contract_meeting'])) ?>
-                <?php elseif ($row['review_pdf_path'] && empty($row['owner_contract_meeting']) && empty($row['owner_contract_path'])): ?>
-                  <form method="post" action="manage-service-requests.php" class="d-flex gap-2">
-                    <input type="hidden" name="set_meeting_request_id" value="<?= $row['request_id'] ?>">
-                    <input type="datetime-local" name="owner_contract_meeting" min="<?= date('Y-m-d\TH:i', strtotime('+12 hours')) ?>" required>
-                    <button type="submit" class="btn btn-sm custom-btn">Set Meeting</button>
-                  </form>
-                <?php else: ?>
-                  <span class="text-muted">Pending</span>
-                <?php endif; ?>
+                <?= $row['owner_contract_meeting'] ? date('Y-m-d H:i', strtotime($row['owner_contract_meeting'])) : '<span class="text-muted">Not set</span>' ?>
               </td>
               <td>
                 <?php
-                // Fetch the contract details (already done above, so only fetch if not available)
-                $contract_stmt = $pdo->prepare("SELECT * FROM owner_service_requests WHERE request_id = ?");
-                $contract_stmt->execute([$row['request_id']]);
-                $contract = $contract_stmt->fetch();
-                if (!$row['owner_contract_meeting']) {
-                  echo '<span class="text-muted">Wait meeting</span>';
-                }
-                // If meeting set but no contract, allow GM to create/edit contract
-                elseif (!$contract) {
-                  if ($role === 'general manager') {
-                    echo '<a href="edit-contract.php?request_id=' . $row['request_id'] . '&type=' . htmlspecialchars($row['slug']) . '" class="btn btn-sm btn-primary">Draft Contract</a>';
-                  } else {
-                    echo '<span class="text-muted">Drafting…</span>';
-                  }
-                }
-                // If contract exists and not locked, allow GM or Property Manager to edit
-                elseif (empty($contract['contract_locked'])) {
-                  if ($role === 'general manager' || $role === 'property manager') {
-                    echo '<a href="edit-contract.php?request_id=' . $row['request_id'] . '" class="btn btn-sm btn-warning">Edit Contract</a>';
-                  } else {
-                    echo '<span class="text-muted">Drafting…</span>';
-                  }
-                }
-                // If contract locked, handle signatures/views
-                else {
-                  // Signature logic (GM or Owner can sign)
-                  $user_sign_column = '';
-                  if ($role === 'owner') $user_sign_column = 'owner_signature';
-                  if ($role === 'general manager') $user_sign_column = 'agency_signature';
-                  $user_has_signed = $user_sign_column && !empty($contract[$user_sign_column]);
-                  $all_signed = !empty($contract['owner_signature']) && !empty($contract['agency_signature']);
-                  // Show relevant buttons/links
-                  if (!$user_has_signed && $user_sign_column) {
-                    echo '<a href="sign-contract.php?contract_id=' . $row['request_id'] . '" class="btn btn-sm btn-outline-primary">View & Sign</a><br>';
-                  } else {
-                    echo '<a href="sign-contract.php?contract_id=' . $row['request_id'] . '" class="btn btn-sm btn-outline-secondary">View Contract</a><br>';
-                  }
-                  if ($all_signed) {
-                    echo "<br><a href='download-contract.php?contract_id={$row['request_id']}' class='btn btn-sm custom-btn mt-1'>Download PDF</a>";
-                  } else {
-                    echo '<br><span class="text-muted small">Awaiting all signatures…</span>';
-                  }
-                }
-                ?>
-                </td>
-                <td>
-                <?php
-                if ($row['final_status'] === 'approved') {
-                    if ($row['owner_contract_path'] && !$row['listed']) {
-                        echo '<a href="list-property.php?request_id=' . $row['request_id'] . '" class="btn btn-sm btn-success">List Property</a>';
-                    } elseif ($row['listed']) {
-                        echo '<span class="badge bg-success">Listed</span>';
-                    } else {
-                        echo '<span class="text-muted">Contract needed</span>';
-                    }
-                } elseif ($row['final_status'] === 'rejected') {
-                    echo '<span class="text-danger">N/A</span>';
+                if ($row['signed_contract_path']) {
+                    echo '<a href="' . htmlspecialchars($row['signed_contract_path']) . '" target="_blank">Signed Contract</a>';
+                    echo "<br>";
+                    echo !empty($row['agency_signature']) ? "<span class='badge bg-success'>Agency Signed</span> " : "";
+                    echo !empty($row['owner_signature']) ? "<span class='badge bg-success'>Owner Signed</span>" : "";
+                } elseif ($row['contract_file_path']) {
+                    echo '<a href="' . htmlspecialchars($row['contract_file_path']) . '" target="_blank">Draft Contract</a>';
+                    echo "<br><span class='text-muted'>Awaiting signatures…</span>";
                 } else {
-                    echo '<span class="text-muted">Pending</span>';
+                    echo '<span class="text-muted">No contract</span>';
                 }
                 ?>
               </td>
               <td>
-                <span class="badge bg-info text-dark"><?= getProgressStage($row) ?></span>
+                <?php
+                if ($row['listed']) {
+                    echo '<span class="badge bg-success">Listed</span>';
+                } else {
+                    echo '<span class="badge bg-secondary">Not Listed</span>';
+                }
+                ?>
               </td>
               <td>
-                <?php
-                if ($row['final_status'] === 'approved') echo '<span class="badge bg-success">Approved</span>';
-                elseif ($row['final_status'] === 'rejected') echo '<span class="badge bg-danger">Rejected</span>';
-                else echo '<span class="badge bg-secondary">Pending</span>';
-                ?>
+                <?= htmlspecialchars($row['contract_status']) ?>
+              </td>
+              <td>
+                <?php if (!empty($row['final_work_path'])): ?>
+                    <a href="<?= htmlspecialchars($row['final_work_path']) ?>" target="_blank">Download</a>
+                <?php else: ?>
+                    <span class="text-muted">N/A</span>
+                <?php endif; ?>
               </td>
             </tr>
           <?php endforeach; ?>
@@ -493,17 +430,12 @@ function showAgentSchedule(agentId, reqId) {
         });
 }
 </script>
-
-<!-- tabs to switch only on click -->
 <script>
-// On tab show, update the URL hash
 document.querySelectorAll('a[data-bs-toggle="tab"]').forEach(tab => {
   tab.addEventListener('shown.bs.tab', function (e) {
     history.replaceState(null, null, e.target.getAttribute('href'));
   });
 });
-
-// On page load, activate the tab in hash if present
 document.addEventListener("DOMContentLoaded", function() {
   var hash = window.location.hash;
   if (hash) {
@@ -515,9 +447,6 @@ document.addEventListener("DOMContentLoaded", function() {
   }
 });
 </script>
-
-<!-- Script to close main navbar on small screen-->
 <script src="navbar-close.js?v=1"></script>
-
 </body>
 </html>

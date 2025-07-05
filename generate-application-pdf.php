@@ -111,6 +111,41 @@ foreach ($sharedFields as $field) {
     $html .= displayRow($label, $field, $data, $service_specific);
 }
 
+if ($service_slug === 'rental_property_management' && is_array($service_specific) && count($service_specific) > 0) {
+    foreach ($service_specific as $idx => $property) {
+        $html .= "<h3 style='margin-top:24px;'>Property " . ($idx+1) . "</h3>";
+        $html .= "<table>";
+        $propertyFields = [
+            'property_name' => 'Property Name',
+            'location' => 'Location',
+            'property_type' => 'Property Type',
+            'property_description' => 'Description',
+            'number_of_bedrooms' => 'Number of Bedrooms',
+            'number_of_bathrooms' => 'Number of Bathrooms',
+            'floor_count' => 'Floor Count',
+            'use_for_the_property' => 'Use',
+            'land_size' => 'Land Size (sq m)',
+            'tenancy_history' => 'Tenancy History',
+            'rental_expectation' => 'Expected Monthly Rent',
+            'lease_terms' => 'Lease Terms',
+            'comments' => 'Additional Comments',
+            'service_level' => 'Service Level',
+            'urgent' => 'Urgent',
+        ];
+        foreach ($propertyFields as $field => $label) {
+            $val = isset($property[$field]) ? htmlspecialchars($property[$field]) : '—';
+            // Prettify "urgent"
+            if ($field === 'urgent') $val = $val == 1 ? "Yes" : "No";
+            $html .= "<tr><th>$label</th><td>$val</td></tr>";
+        }
+        $html .= "</table>";
+    }
+} else {
+    // fallback: display a single property (legacy, or brokerage, or other service)
+    foreach ($sharedFields as $field) {
+        $label = ucwords(str_replace('_', ' ', $field));
+        $html .= displayRow($label, $field, $data, $service_specific[0] ?? []);
+    }
 // -----------------------------------------------------------------------------
 // Step 5: Service-specific fields
 // -----------------------------------------------------------------------------
@@ -129,32 +164,4 @@ switch ($service_slug) {
         $html .= displayRow("Estimated Price", "rental_expectation", $service_specific);
         break;
 }
-$html .= "</table></body></html>";
-
-// -----------------------------------------------------------------------------
-// Step 6: Render and stream PDF
-// -----------------------------------------------------------------------------
-$options = new Options();
-$options->set('isHtml5ParserEnabled', true);
-$options->set('isRemoteEnabled', true);
-
-$dompdf = new Dompdf($options);
-$dompdf->loadHtml($html);
-$dompdf->setPaper('A4', 'portrait');
-$dompdf->render();
-
-// Step 7: Save PDF to correct folder
-$ownerFolder = $data['owner_id'] . '_' . preg_replace('/[^a-z0-9_]/i', '_', $data['owner_name']);
-$serviceFolder = $data['service_id'] . '_' . $data['service_slug'];
-$targetDir = "uploads/owner/{$ownerFolder}/applications/{$serviceFolder}/request_{$request_id}/";
-if (!is_dir($targetDir)) mkdir($targetDir, 0777, true);
-
-$pdfPath = $targetDir . "application_form.pdf"; // Save with a clear name
-
-file_put_contents($pdfPath, $dompdf->output());
-
-// Prevent any stray output before streaming PDF
-if (ob_get_length()) ob_end_clean();
-
-$dompdf->stream("application_form_{$request_id}.pdf", ["Attachment" => false]);
-exit;
+$html .= "</table></body></html>";}

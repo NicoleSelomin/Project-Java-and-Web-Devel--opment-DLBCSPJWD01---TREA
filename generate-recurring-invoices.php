@@ -29,12 +29,14 @@ $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$invoice) exit('Invoice not found.');
 
-// Calculate due date based on grace_period_days
-$graceDays = isset($invoice['grace_period_days']) && $invoice['grace_period_days'] > 0 ? intval($invoice['grace_period_days']) : 7;
-$dueDateObj = new DateTime($invoice['invoice_date']);
-$dueDate = $dueDateObj->modify("+".($graceDays)." days")->format('Y-m-d');
+// Use the correct period covered for prepaid (next month/quarter/etc.)
+$periodStart = $invoice['start_period_date'] ?? $invoice['invoice_date'];
+$periodEnd   = $invoice['end_period_date'] ?? $invoice['due_date'];
 
-// 2. Prepare replacement values for template
+// Due date is stored in DB, don't recalc
+$dueDate = $invoice['due_date'];
+
+// Agency/static info
 $agencyName = "Trusted Real Estate Agency (TREA)";
 $invoiceNumber = "INV-" . str_pad($invoice['invoice_id'], 6, "0", STR_PAD_LEFT);
 $invoiceDate = $invoice['invoice_date'];
@@ -42,8 +44,8 @@ $clientName = $invoice['client_name'];
 $propertyName = $invoice['property_name'];
 $claimId = $invoice['claim_id'];
 $frequency = ucfirst($invoice['payment_frequency']);
-$periodStart = $invoice['invoice_date'];
-$periodEnd   = $dueDate; // use the calculated due date
+
+// Rent and penalty
 $baseRent = number_format($invoice['monthly_rent'], 2);
 $months = match (strtolower($invoice['payment_frequency'])) {
     'monthly' => 1, 'quarterly' => 3, 'yearly' => 12, default => 1,
@@ -53,7 +55,7 @@ $penaltyRate = number_format($invoice['penalty_rate'], 2);
 
 // Penalty/Overdue logic
 $now = new DateTime();
-$due_date_dt = new DateTime($dueDate); // use the new dueDate!
+$due_date_dt = new DateTime($dueDate);
 $is_overdue = $now > $due_date_dt && $invoice['payment_status'] !== 'confirmed';
 $overdueHtml = "";
 if ($is_overdue && $invoice['penalty_rate'] > 0) {
@@ -95,8 +97,6 @@ $dompdf->loadHtml($filled);
 $dompdf->setPaper('A4', 'portrait');
 $dompdf->render();
 
-
- // To keep an admin archive
 function safe_slug($text) {
     return strtolower(trim(preg_replace('/[^A-Za-z0-9_]/', '', str_replace(' ', '_', $text))));
 }
@@ -111,7 +111,6 @@ if (empty($invoice['invoice_path']) || $invoice['invoice_path'] !== $pdfPath) {
     $stmt = $pdo->prepare("UPDATE rental_recurring_invoices SET invoice_path = ? WHERE invoice_id = ?");
     $stmt->execute([$pdfPath, $invoice_id]);
 }
-
 
 // 5. Browser preview? (for debug, AJAX, or admin preview)
 if (isset($_GET['preview']) && $_GET['preview'] == 1) {

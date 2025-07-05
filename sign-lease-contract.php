@@ -1,7 +1,9 @@
 <?php
 /**
- * Lease Contract Signing Page
- * Loads the template with signature placeholders, fills in info, handles online signatures for Owner and Client.
+ * Lease Contract Signing Page (Updated for Extension)
+ * - Handles signature by owner/client only if contract is locked.
+ * - If contract is unlocked (for extension), both can view but NOT sign.
+ * - Preserves existing signatures during extension window.
  */
 
 session_start();
@@ -18,11 +20,9 @@ $is_client  = ($user_type === 'client');
 $is_gm      = ($staff_role === 'general manager');
 $is_pm      = ($staff_role === 'property manager');
 
-// Identify which party is signing (if any)
 $signing_party = '';
 if ($is_owner)         $signing_party = 'owner';
 elseif ($is_client)    $signing_party = 'client';
-// Staff only view, not sign
 elseif ($is_gm)        $signing_party = 'general manager';
 elseif ($is_pm)        $signing_party = 'property manager';
 
@@ -48,7 +48,10 @@ $stmt->execute([$claim_id]);
 $contract = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$contract) die('Lease contract not found.');
-if (empty($contract['locked'])) die('Contract not yet ready for signing.');
+
+// --- IMPORTANT: Only allow signing if contract is locked ---
+// - During unlocked extension window: both parties see the contract (including their prior signatures), but cannot sign.
+$is_locked = !empty($contract['locked']);
 
 // ================================
 // 3. SIGNATURE BLOCKS CONFIG
@@ -70,14 +73,17 @@ $signature_blocks = [
 
 // ================================
 // 4. DETERMINE WHO CAN SIGN
+// Only allow if locked AND this user hasn't already signed
 // ================================
 $user_sign_column = '';
 $user_sign_label  = '';
-foreach ($signature_blocks as $block => $data) {
-    if ($signing_party === $data['show_for'] && empty($contract[$data['db_column']])) {
-        $user_sign_column = $data['db_column'];
-        $user_sign_label  = $data['label'];
-        break;
+if ($is_locked) {
+    foreach ($signature_blocks as $block => $data) {
+        if ($signing_party === $data['show_for'] && empty($contract[$data['db_column']])) {
+            $user_sign_column = $data['db_column'];
+            $user_sign_label  = $data['label'];
+            break;
+        }
     }
 }
 
@@ -88,7 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $user_sign_column) {
     $signature_data = $_POST['signature_data'] ?? '';
     if (!$signature_data) die('No signature data provided.');
 
-    // Find correct timestamp column from config
+    // Find correct timestamp column
     $timestamp_col = '';
     foreach ($signature_blocks as $block => $data) {
         if ($data['db_column'] === $user_sign_column) {
@@ -107,36 +113,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $user_sign_column) {
 // ================================
 // 6. BUILD CONTRACT HTML WITH SIGNATURE BLOCKS
 // ================================
-
-/**
- * Utility: Make safe folder names.
- */
 function slugify($string) {
     return preg_replace('/[^a-zA-Z0-9_\-]/', '_', strtolower(trim($string)));
 }
 
-// Safe names for file/folder usage
-$owner_id = $contract['owner_id'];
+$owner_id   = $contract['owner_id'];
 $owner_name = slugify($contract['owner_name']);
 $property_id = $contract['property_id'];
 $property_name = slugify($contract['property_name']);
-$client_id = $contract['client_id'];
+$client_id  = $contract['client_id'];
 $client_name = slugify($contract['client_name']);
 
-// Paths (only folder, don't include .html here!)
 $owner_contract_dir  = __DIR__ . "/uploads/owner/{$owner_id}_{$owner_name}/listed_properties/{$property_id}_{$property_name}/";
 $client_contract_dir = __DIR__ . "/uploads/clients/{$client_id}_{$client_name}/reserved_properties/{$property_id}_{$property_name}/";
 $owner_contract_html = $owner_contract_dir . "contract.html";
 $client_contract_html = $client_contract_dir . "contract.html";
 
-// Template
 $template_path = __DIR__ . '/lease-contract-template-en.html';
-if (!file_exists($template_path)) {
-    die('Lease contract template file missing.');
-}
+if (!file_exists($template_path)) die('Lease contract template file missing.');
 $contract_html = file_get_contents($template_path);
 
-// ---- Prepare info placeholders ----
 $placeholders = [
     '{{OWNER_NAME}}'           => htmlspecialchars($contract['owner_name']),
     '{{OWNER_PHONE}}'          => htmlspecialchars($contract['owner_phone'] ?? ''),
@@ -168,19 +164,20 @@ $placeholders = [
     '{{REVISION_FREQUENCY}}'   => htmlspecialchars($contract['revision_frequency'] ?? '1 year'),
     '{{PRONOUN}}'              => 'they',
     '{{PROPERTY_NAME}}'        => htmlspecialchars($contract['property_name'] ?? ''),
-    '{{REVISION_UNIT}}'        => 'year', // fallback/default
+    '{{REVISION_UNIT}}'        => 'year',
 ];
 
-// ---- Replace info placeholders (except signatures/dates) ----
 $content = strtr($contract_html, $placeholders);
 
+// -- Signatures --
 $signature_replacements = [];
 foreach ($signature_blocks as $block => $data) {
     $block_col = $data['db_column'];
     if (!empty($contract[$block_col])) {
         $signature_replacements["{{{$block}}}"] =
             '<div class="signature-block mb-2"><img src="' . htmlspecialchars($contract[$block_col]) . '" style="max-height:90px; max-width:95%; display:block; margin:auto;"></div>';
-    } elseif ($user_sign_column === $block_col) {
+    } elseif ($user_sign_column === $block_col && $is_locked) {
+        // Show signature pad only if contract is locked AND user can sign
         $signature_replacements["{{{$block}}}"] = <<<HTML
 <div class="signature-block mb-2">
   <canvas id="signature-pad" width="330" height="100" class="signature-pad-canvas"></canvas>
@@ -203,7 +200,6 @@ $signature_replacements['{{CLIENT_SIGNATURE_DATE}}'] = $contract['client_signed_
     ? date('Y-m-d H:i', strtotime($contract['client_signed_at'])) 
     : '<span class="text-muted">Not yet signed</span>';
 
-// ---- Final placeholder replacement: signatures and dates ----
 $content = strtr($content, $signature_replacements);
 
 // ================================
@@ -215,44 +211,30 @@ foreach ($signature_blocks as $data) {
         $all_signed = false;
         break;
     }
-
-        // Set contract_status = 'active'
-    $stmt = $pdo->prepare("UPDATE rental_contracts SET contract_status = 'active' WHERE claim_id = ?");
-    $stmt->execute([$claim_id]);
 }
 
 if ($all_signed) {
-    // Ensure both directories exist
     if (!is_dir($owner_contract_dir)) mkdir($owner_contract_dir, 0777, true);
     if (!is_dir($client_contract_dir)) mkdir($client_contract_dir, 0777, true);
-
-    // Save HTML
     file_put_contents($owner_contract_html, $content);
     file_put_contents($client_contract_html, $content);
-
-    // Save relative path to DB (use client path)
     $relative_client_contract_path = "uploads/clients/{$client_id}_{$client_name}/reserved_properties/{$property_id}_{$property_name}/contract.html";
     $stmt = $pdo->prepare("UPDATE rental_contracts SET contract_signed_path = ? WHERE claim_id = ?");
     $stmt->execute([$relative_client_contract_path, $claim_id]);
 }
 
 $page_title = 'Lease Agreement';
-
-// (render HTML as normal for the page...)
-
 ?>
 
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Sign <?= htmlspecialchars($page_title) ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css?v=<?= time() ?>">
 </head>
 <body class="bg-light d-flex flex-column min-vh-100">
-
 <?php include 'header.php'; ?>
 
 <main class="flex-shrink-0 flex-grow-1 py-4">
@@ -272,11 +254,18 @@ $page_title = 'Lease Agreement';
             <div class="alert alert-success">Your signature has been saved.</div>
         <?php endif; ?>
 
+        <?php if (!$is_locked): ?>
+            <div class="alert alert-warning mb-3">
+                <b>Contract is currently being revised for extension.</b> You may only <b>view</b> the contract and signatures.<br>
+                Signing is disabled until contract revision is complete and contract is locked for signatures again.
+            </div>
+        <?php endif; ?>
+
         <div class="contract-card bg-white rounded-4 p-4 mb-4 border">
             <?= $content ?>
         </div>
 
-        <?php if ($user_sign_column): ?>
+        <?php if ($user_sign_column && $is_locked): ?>
             <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.5/dist/signature_pad.umd.min.js"></script>
             <script>
             var signaturePad = new SignaturePad(document.getElementById('signature-pad'));
@@ -296,15 +285,7 @@ $page_title = 'Lease Agreement';
             </script>
         <?php endif; ?>
 
-        <?php
-        $all_signed = true;
-        foreach ($signature_blocks as $data) {
-            if (empty($contract[$data['db_column']])) {
-                $all_signed = false;
-                break;
-            }
-        }
-        if ($all_signed): ?>
+        <?php if ($all_signed): ?>
             <a href="download-lease-contract.php?claim_id=<?= $claim_id ?>" class="btn btn-outline-primary mt-2">Download Signed PDF</a>
         <?php endif; ?>
     </div>
@@ -314,4 +295,3 @@ $page_title = 'Lease Agreement';
 <script src="navbar-close.js?v=1"></script>
 </body>
 </html>
-

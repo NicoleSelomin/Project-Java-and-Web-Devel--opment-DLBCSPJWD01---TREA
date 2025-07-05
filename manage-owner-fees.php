@@ -1,29 +1,29 @@
 <?php
 /**
- * manage-owner-fee.php
+ * manage-owner-fees.php
  * -------------------------------------
- * Allows the accountant to upload PDF receipts for management, maintenance, tax deduction,
- * and proof of rent transfer for a specific owner rental fee.
- * Only accessible by staff with role 'accountant'.
- * Sends notifications to owner and staff on successful upload.
- * 
- * Requires:
- *   - db_connect.php for database connection
- *   - send-upload-notification.php for notification logic
- *   - Staff must be authenticated as 'accountant'
- *   - GET parameter fee_id 
+ * Accountant view for all owner rental fees (by invoice/period).
+ * - Accountant sets maintenance & tax fees if applicable.
+ * - Management fee is fetched from the owner-agency contract as a percentage of rent.
+ * - Net to owner is rent minus all applicable fees.
+ * - Lets accountant filter by owner, property, month.
+ * - Shows all receipts and transfer docs.
+ * - Upload/replace docs for each fee.
+ * - DOES NOT send notifications from this page—only from the submission handler.
+ * Security: Staff login as accountant or general manager required.
  */
 
 session_start();
 require 'db_connect.php';
 
-// Auth check
+// ---- Security: Only accountant/general manager allowed ----
 if (!isset($_SESSION['staff_id']) || !in_array(strtolower($_SESSION['role']), ['general manager', 'accountant'])) {
-    $_SESSION['redirect_after_login'] = 'manage-owner-rental-fees.php';
+    $_SESSION['redirect_after_login'] = 'manage-owner-fees.php';
     header("Location: staff-login.php");
     exit();
 }
 
+// ---- Step 1: Ensure all recurring invoices are present in owner_rental_fees ----
 $stmt = $pdo->prepare("
     SELECT 
         inv.invoice_id, inv.claim_id, inv.invoice_date, inv.due_date, inv.amount,
@@ -59,9 +59,11 @@ foreach ($activeInvoices as $inv) {
     }
 }
 
-// 2. Now fetch for display!
+// ---- Step 2: Fetch filtered fees for display ----
+
 $where = [];
 $params = [];
+
 if (!empty($_GET['owner_id'])) {
     $where[] = "o.owner_id = ?";
     $params[] = (int)$_GET['owner_id'];
@@ -73,31 +75,67 @@ if (!empty($_GET['property_id'])) {
 if (!empty($_GET['month'])) {
     $where[] = "f.invoice_month = ?";
     $params[] = $_GET['month'];
+} else {
+    $current_month = date('Y-m');
+    $where[] = "f.invoice_month = ?";
+    $params[] = $current_month;
 }
-
 $whereSql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
+// ---- Main fee data query ----
 $stmt = $pdo->prepare("
     SELECT 
         f.*, 
         p.property_name, p.property_id,
         o.owner_id, u.full_name AS owner_name, u.phone_number AS owner_phone,
         o.bank_name, o.account_number AS bank_account_number, o.account_holder_name, o.payment_mode,
+        oac.management_fee_percent,
         c.client_id, cu.full_name AS client_name, cu.phone_number AS client_phone,
         inv.due_date, inv.payment_status AS client_payment_status
     FROM owner_rental_fees f
-    JOIN client_claims cc ON f.claim_id = cc.claim_id
-    JOIN clients c ON cc.client_id = c.client_id
-    JOIN users cu ON c.user_id = cu.user_id
-    JOIN properties p ON cc.property_id = p.property_id
-    JOIN owners o ON p.owner_id = o.owner_id
-    JOIN users u ON o.user_id = u.user_id
+    LEFT JOIN client_claims cc ON f.claim_id = cc.claim_id
+    LEFT JOIN clients c ON cc.client_id = c.client_id
+    LEFT JOIN users cu ON c.user_id = cu.user_id
+    LEFT JOIN properties p ON cc.property_id = p.property_id
+    LEFT JOIN owners o ON p.owner_id = o.owner_id
+    LEFT JOIN users u ON o.user_id = u.user_id
+    LEFT JOIN owner_agency_contracts oac ON o.owner_id = oac.owner_id
     LEFT JOIN rental_recurring_invoices inv ON f.invoice_id = inv.invoice_id
     $whereSql
-    ORDER BY f.start_period DESC, p.property_name
+    ORDER BY u.full_name, f.start_period DESC, p.property_name
 ");
 $stmt->execute($params);
 $fees = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// ---- Step 3: Handle fee edits (POST) ----
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_fee_id'])) {
+    $fee_id = (int)$_POST['edit_fee_id'];
+    $maintenance_fee = isset($_POST['maintenance_fee']) ? floatval($_POST['maintenance_fee']) : 0;
+    $tax_fee = isset($_POST['tax_fee']) ? floatval($_POST['tax_fee']) : 0;
+    // Recalculate net_transfer after edit
+    // Fetch fee and management percent
+    $stmt = $pdo->prepare("
+        SELECT f.*, oac.management_fee_percent
+        FROM owner_rental_fees f
+        LEFT JOIN client_claims cc ON f.claim_id = cc.claim_id
+        LEFT JOIN properties p ON cc.property_id = p.property_id
+        LEFT JOIN owner_agency_contracts oac ON p.owner_id = oac.owner_id
+        WHERE f.fee_id = ?
+    ");
+    $stmt->execute([$fee_id]);
+    $fee = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($fee) {
+        $mgmt_percent = floatval($fee['management_fee_percent'] ?? 0);
+        $mgmt_fee = round($fee['rent_received'] * $mgmt_percent / 100, 2);
+        $net_transfer = $fee['rent_received'] - $mgmt_fee - $maintenance_fee - $tax_fee;
+        // Save changes
+        $up = $pdo->prepare("UPDATE owner_rental_fees SET maintenance_fee = ?, tax_fee = ?, net_transfer = ? WHERE fee_id = ?");
+        $up->execute([$maintenance_fee, $tax_fee, $net_transfer, $fee_id]);
+    }
+    header("Location: manage-owner-fees.php?" . http_build_query($_GET));
+    exit();
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -127,14 +165,15 @@ $fees = $stmt->fetchAll(PDO::FETCH_ASSOC);
         </div>
         <div class="col-auto">
             <button class="btn btn-outline-primary">Filter</button>
-            <a href="manage-owner-rental-fees.php" class="btn btn-link">Reset</a>
+            <a href="manage-owner-fees.php" class="btn btn-link">Reset</a>
         </div>
     </form>
     
     <div class="table-responsive">
     <table class="table table-bordered table-hover bg-white align-middle">
-<thead class="table-light">
+<thead class="table-dark">
 <tr>
+    <th>Owner (Contact & Bank)</th>
     <th>Month</th>
     <th>Property</th>
     <th>Client</th>
@@ -147,7 +186,6 @@ $fees = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <th>Receipts</th>
     <th>Transfer Proof</th>
     <th>Status</th>
-    <th>Owner Bank & Contact</th>
     <th>Actions</th>
 </tr>
 </thead>
@@ -160,11 +198,29 @@ $fees = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } elseif (!$fee['transfer_proof']) {
         $rowClass = 'table-danger';
     } else {
-        $rowClass = 'table-success';
+        $rowClass = 'table-light';
     }
     $period = date('M Y', strtotime($fee['start_period']));
+    $mgmt_percent = floatval($fee['management_fee_percent'] ?? 0);
+    $mgmt_fee = round($fee['rent_received'] * $mgmt_percent / 100, 2);
+
+    // --- Service level: Is maintenance or tax applicable? ---
+    $maintenance_enabled = isset($fee['maintenance_included']) && $fee['maintenance_included'];
+    $tax_enabled = isset($fee['tax_included']) && $fee['tax_included'];
+    // If not enabled, treat as zero
+    $maintenance_fee = $maintenance_enabled ? floatval($fee['maintenance_fee']) : 0;
+    $tax_fee = $tax_enabled ? floatval($fee['tax_fee']) : 0;
+    $net_transfer = $fee['rent_received'] - $mgmt_fee - $maintenance_fee - $tax_fee;
 ?>
 <tr class="<?= $rowClass ?>">
+    <td>
+        <strong><?= htmlspecialchars($fee['owner_name'] ?? '-') ?></strong>
+        <br><span class="text-muted small"><?= htmlspecialchars($fee['owner_phone'] ?? '-') ?></span>
+        <br><span class="text-muted small"><?= htmlspecialchars($fee['bank_name'] ?? '-') ?></span>
+        <br><span class="text-muted small">Acct#: <?= htmlspecialchars($fee['bank_account_number'] ?? '-') ?></span>
+        <br><span class="text-muted small"><?= htmlspecialchars($fee['account_holder_name'] ?? '-') ?></span>
+        <br><em><?= htmlspecialchars($fee['payment_mode'] ?? '-') ?></em>
+    </td>
     <td><?= $period ?></td>
     <td>
         <?= htmlspecialchars($fee['property_name']) ?>
@@ -184,36 +240,89 @@ $fees = $stmt->fetchAll(PDO::FETCH_ASSOC);
         ?>
     </td>
     <td><?= number_format($fee['rent_received'],2) ?></td>
+<!-- Management fee always calculated and displayed -->
+<td>
+    <?php
+        $mgmt_percent = floatval($fee['management_fee_percent'] ?? 0);
+        $mgmt_fee = round($fee['rent_received'] * $mgmt_percent / 100, 2);
+        echo number_format($mgmt_fee, 2) . " ({$mgmt_percent}%)";
+        // Update db if not set or changed
+        if ($mgmt_fee != floatval($fee['management_fee'])) {
+            $up = $pdo->prepare("UPDATE owner_rental_fees SET management_fee = ? WHERE fee_id = ?");
+            $up->execute([$mgmt_fee, $fee['fee_id']]);
+        }
+    ?>
+    <?php if ($fee['receipt_management']): ?>
+        <br><a href="<?= $fee['receipt_management'] ?>" target="_blank">View</a>
+    <?php else: ?>
+        <br><span class="text-muted small">Not uploaded</span>
+    <?php endif; ?>
+</td>
+
+<!-- Maintenance Fee -->
+<td>
+    <form method="post" style="min-width: 120px;">
+        <input type="hidden" name="edit_fee_id" value="<?= $fee['fee_id'] ?>">
+        <input type="number" step="0.01" min="0" name="maintenance_fee" class="form-control form-control-sm mb-1"
+            value="<?= htmlspecialchars($fee['maintenance_fee']) ?>" required>
+        <button class="btn btn-sm btn-outline-secondary" type="submit">Save</button>
+    </form>
+    <?php if ($fee['receipt_maintenance']): ?>
+        <br><a href="<?= $fee['receipt_maintenance'] ?>" target="_blank">View</a>
+    <?php else: ?>
+        <br><span class="text-muted small">Not uploaded</span>
+    <?php endif; ?>
+</td>
+<!-- Tax Fee -->
+<td>
+    <form method="post" style="min-width: 120px;">
+        <input type="hidden" name="edit_fee_id" value="<?= $fee['fee_id'] ?>">
+        <input type="number" step="0.01" min="0" name="tax_fee" class="form-control form-control-sm mb-1"
+            value="<?= htmlspecialchars($fee['tax_fee']) ?>" required>
+        <button class="btn btn-sm btn-outline-secondary" type="submit">Save</button>
+    </form>
+    <?php if ($fee['tax_receipt']): ?>
+        <br><a href="<?= $fee['tax_receipt'] ?>" target="_blank">View</a>
+    <?php else: ?>
+        <br><span class="text-muted small">Not uploaded</span>
+    <?php endif; ?>
+</td>
+
     <td>
-        <?= number_format($fee['management_fee'],2) ?>
-        <?php if ($fee['receipt_management']): ?>
-            <br><a href="<?= $fee['receipt_management'] ?>" target="_blank">View</a>
+        <?php if ($tax_enabled): ?>
+            <form method="post" style="min-width: 120px;">
+                <input type="hidden" name="edit_fee_id" value="<?= $fee['fee_id'] ?>">
+                <input type="number" step="0.01" min="0" name="tax_fee" class="form-control form-control-sm mb-1"
+                    value="<?= htmlspecialchars($tax_fee) ?>" required>
+                <button class="btn btn-sm btn-outline-secondary" type="submit">Save</button>
+            </form>
         <?php else: ?>
-            <br><span class="text-muted small">Not uploaded</span>
+            <span class="text-muted">Not applicable</span>
         <?php endif; ?>
-    </td>
-    <td>
-        <?= number_format($fee['maintenance_fee'],2) ?>
-        <?php if ($fee['receipt_maintenance']): ?>
-            <br><a href="<?= $fee['receipt_maintenance'] ?>" target="_blank">View</a>
-        <?php else: ?>
-            <br><span class="text-muted small">Not uploaded</span>
-        <?php endif; ?>
-    </td>
-    <td>
-        <?= number_format($fee['tax_fee'],2) ?>
         <?php if ($fee['tax_receipt']): ?>
             <br><a href="<?= $fee['tax_receipt'] ?>" target="_blank">View</a>
         <?php else: ?>
             <br><span class="text-muted small">Not uploaded</span>
         <?php endif; ?>
     </td>
-    <td>
-        <?= number_format($fee['net_transfer'],2) ?>
-    </td>
+<td>
+    <?php
+        $total_deductions = $mgmt_fee + floatval($fee['maintenance_fee']) + floatval($fee['tax_fee']);
+        $net_transfer = $fee['rent_received'] - $total_deductions;
+        // Save deductions and net to db if needed
+        if ($total_deductions != floatval($fee['total_deductions']) || $net_transfer != floatval($fee['net_transfer'])) {
+            $up = $pdo->prepare("UPDATE owner_rental_fees SET total_deductions = ?, net_transfer = ? WHERE fee_id = ?");
+            $up->execute([$total_deductions, $net_transfer, $fee['fee_id']]);
+        }
+        echo '<span class="fw-bold">' . number_format($net_transfer,2) . '</span>';
+    ?>
+</td>
+
     <td>
         <?php if ($fee['receipt_management']): ?>
-            <a href="<?= $fee['receipt_management'] ?>" target="_blank" class="badge bg-info">Mgmt</a>
+            <<a href="edit-management-fee-receipt.php?fee_id=<?= $fee['fee_id'] ?>" class="btn btn-sm btn-outline-primary">
+    Edit Receipts/Fees
+</a>
         <?php endif; ?>
         <?php if ($fee['receipt_maintenance']): ?>
             <a href="<?= $fee['receipt_maintenance'] ?>" target="_blank" class="badge bg-info">Maint</a>
@@ -235,34 +344,38 @@ $fees = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 echo '<span class="badge bg-warning text-dark">Awaiting Client Payment</span>';
             } elseif (!$fee['transfer_proof']) {
                 echo '<span class="badge bg-danger">Awaiting Transfer</span>';
-            } elseif ($fee['owner_confirmation']) {
-                echo '<span class="badge bg-success">Confirmed</span>';
             } else {
-                echo '<span class="badge bg-info">Transferred, Awaiting Owner</span>';
+                echo '<span class="badge bg-success">Completed</span>';
             }
         ?>
-    </td>
-    <td>
-        <div class="small">
-            <strong><?= htmlspecialchars($fee['owner_name'] ?? '-') ?></strong>
-            <br><?= htmlspecialchars($fee['owner_phone'] ?? '-') ?>
-            <br><?= htmlspecialchars($fee['bank_name'] ?? '-') ?>
-            <br><?= htmlspecialchars($fee['bank_account_number'] ?? '-') ?>
-            <br><?= htmlspecialchars($fee['account_holder_name'] ?? '-') ?>
-            <br><em><?= htmlspecialchars($fee['payment_mode'] ?? '-') ?></em>
-        </div>
     </td>
     <td>
         <a href="manage-owner-fee.php?fee_id=<?= $fee['fee_id'] ?>" class="btn btn-sm btn-outline-primary">
             Upload/Replace Docs
         </a>
+        <?php if (!$fee['submitted_to_owner']): ?>
+            <form action="submit-owner-fee.php" method="post" style="display:inline;">
+                <input type="hidden" name="fee_id" value="<?= $fee['fee_id'] ?>">
+                <button class="btn btn-sm btn-success ms-2" type="submit"
+                onclick="return confirm('Submit all receipts to owner? Notification will be sent and records locked.');">
+                    Submit to Owner
+                </button>
+            </form>
+        <?php else: ?>
+            <span class="badge bg-secondary ms-2">Submitted to Owner<br><?= htmlspecialchars($fee['submitted_at']) ?></span>
+        <?php endif; ?>
     </td>
 </tr>
 <?php endforeach; ?>
 </tbody>
     </table>
     </div>
-    <p class="mt-3 text-muted">Legend: <span class="badge bg-success">Confirmed</span> <span class="badge bg-info">Transferred</span> <span class="badge bg-warning text-dark">Awaiting Client</span> <span class="badge bg-danger">Action Needed</span></p>
+    <p class="mt-3 text-muted">Legend: 
+        <span class="badge bg-success">Confirmed</span> 
+        <span class="badge bg-info">Transferred</span> 
+        <span class="badge bg-warning text-dark">Awaiting Client</span> 
+        <span class="badge bg-danger">Action Needed</span>
+    </p>
 </div>
 
 <?php include 'footer.php'; ?>

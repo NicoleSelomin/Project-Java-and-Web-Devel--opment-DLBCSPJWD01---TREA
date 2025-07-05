@@ -49,8 +49,7 @@ foreach ($claims as $claim_id => $cdata) {
     }
 }
 
-// Fetch latest notice by contract_id
-// Fetch all notices per contract for display
+// Fetch latest notice by contract_id, and all notices for listing
 $allNoticesByContract = [];
 if ($contractIds) {
     $qMarks2 = implode(',', array_fill(0, count($contractIds), '?'));
@@ -59,26 +58,27 @@ if ($contractIds) {
     foreach ($noticeStmt->fetchAll(PDO::FETCH_ASSOC) as $n) {
         $allNoticesByContract[$n['contract_id']][] = $n;
     }
-    // Assign to each claim
+    // Assign all notices and latest notice to each claim
     foreach ($claims as $claim_id => &$cdata) {
         $cid = $cdata['info']['contract_id'] ?? null;
         if ($cid && isset($allNoticesByContract[$cid])) {
             $cdata['all_notices'] = $allNoticesByContract[$cid];
+            $cdata['latest_notice'] = $allNoticesByContract[$cid][0] ?? null;
         } else {
             $cdata['all_notices'] = [];
+            $cdata['latest_notice'] = null;
         }
     }
     unset($cdata);
 }
 
-
-// Now fetch other related data in batches as before
+// Fetch other related data
 if ($claims) {
     $claimIds = array_keys($claims);
     $qMarks = implode(',', array_fill(0, count($claimIds), '?'));
 
     // Recurring invoices
-    $stmt = $pdo->prepare("SELECT * FROM rental_recurring_invoices WHERE claim_id IN ($qMarks) ORDER BY due_date ASC");
+    $stmt = $pdo->prepare("SELECT * FROM rental_recurring_invoices WHERE claim_id IN ($qMarks) ORDER BY start_period_date DESC");
     $stmt->execute($claimIds);
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
         $claims[$r['claim_id']]['recurring'][] = $r;
@@ -108,7 +108,6 @@ if ($claims) {
         $claims[$ir['claim_id']]['inspection_reports'][$ir['inspection_type']] = $ir;
     }
 }
-
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -118,6 +117,38 @@ if ($claims) {
     <title>Your Rental-Managed Properties</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css?v=<?= time() ?>">
+    <style>
+    /* Smooth dropdown for send notice */
+    .dropdown-notice-section {
+        display: none;
+        transition: all 0.2s;
+    }
+    .dropdown-notice-section.show {
+        display: block;
+        animation: fadeIn 0.2s;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    .caret-btn {
+        background: none;
+        border: none;
+        font-size: 1rem;
+        color: #333;
+        cursor: pointer;
+        vertical-align: middle;
+        transition: color 0.2s;
+    }
+    .caret-btn:focus { outline: none; color: #007bff; }
+    .caret-arrow {
+        transition: transform 0.2s;
+        display: inline-block;
+    }
+    .caret-arrow.rotate {
+        transform: rotate(90deg);
+    }
+    </style>
 </head>
 <body class="d-flex flex-column min-vh-100 bg-light">
 <?php include 'header.php'; ?>
@@ -137,6 +168,14 @@ if ($claims) {
         $i = $data['info'];
         $inspection_reports = $data['inspection_reports'] ?? [];
         $recs = $data['recurring'];
+
+        // Sort invoices by start_period_date DESC for newest first
+        usort($recs, function($a,$b){
+            return strtotime($b['start_period_date'] ?? $b['invoice_date']) - strtotime($a['start_period_date'] ?? $a['invoice_date']);
+        });
+        $latestInvoice = $recs[0] ?? null;
+        $otherInvoices = array_slice($recs, 1);
+
         // Find first unpaid rent invoice for warnings
         $firstUnpaid = null;
         foreach ($recs as $inv) {
@@ -152,7 +191,6 @@ if ($claims) {
         if (!empty($i['actual_end_date'])) {
             $terminated = true;
             $terminationDate = date('d M Y', strtotime($i['actual_end_date']));
-            // Source of termination_type/reason is rental_contracts only
             if ($i['termination_type'] === 'immediate') {
                 $terminationType = 'Immediate Termination';
             } elseif ($i['termination_type'] === 'notice') {
@@ -267,116 +305,176 @@ if ($claims) {
             <?php endif; ?>
 
             <hr>
-<!-- SEND TERMINATION NOTICE (form, only if active and locked) -->
-<?php
-// 1. Find active notice
-$active_notice = null;
-foreach ($data['all_notices'] as $n) {
-    if (($n['status'] ?? 'active') === 'active') {
-        $active_notice = $n;
-        break;
-    }
-}
-if (!$active_notice && $i['locked'] && !$terminated): ?>
-    <form method="POST" action="send-rent-notice.php" class="mt-3">
-        <input type="hidden" name="claim_id" value="<?= $claim_id ?>">
-        <input type="hidden" name="contract_id" value="<?= $i['contract_id'] ?>">
-        <input type="hidden" name="notice_type" value="period">
-        <div class="mb-2">
-            <label for="reason<?= $claim_id ?>">Notice Message / Reason</label>
-            <textarea name="reason" id="reason<?= $claim_id ?>" class="form-control" required></textarea>
-        </div>
-        <div class="mb-2">
-            <label>Termination Type:</label><br>
-            <span class="badge bg-warning text-dark">
-                Notice Period: <?= intval($i['notice_period_months']) ?> months
-            </span>
-        </div>
-        <button class="btn btn-danger btn-sm">Send Termination Notice</button>
-        <div class="form-text text-muted">
-            Contact the Agency for immediate termination.
-        </div>
-    </form>
-<?php endif; ?>
-
-<hr>
-<!-- WARNING (only latest, only if unpaid, only if no proof) -->
-<?php if ($showWarning): ?>
-    <div class="alert alert-danger mt-3">
-        <b>Payment Reminder:</b> <?= htmlspecialchars($data['latest_warning']['message']) ?><br>
-        <small class="text-muted"><?= date('d M Y H:i', strtotime($data['latest_warning']['sent_at'])) ?></small>
-    </div>
-<?php endif; ?>
-
-<hr>
-<!-- NOTICE (only latest) -->
-<?php if ($data['latest_notice']): ?>
-    <?php
-        $n = $data['latest_notice'];
-        $notice_period_months = isset($i['notice_period_months']) ? intval($i['notice_period_months']) : 0;
-        $notice_period_days = $notice_period_months * 30;
-        $immediate_termination = isset($n['immediate_termination']) ? $n['immediate_termination'] : 0;
-        $sent_at = isset($n['sent_at']) ? $n['sent_at'] : null;
-        $contract_notice_end_date = ($sent_at && $notice_period_days)
-            ? date('d M Y', strtotime($sent_at . ' +' . $notice_period_days . ' days'))
-            : 'N/A';
-    ?>
-    <div class="alert alert-info mt-2">
-        <b>Notice:</b> <?= htmlspecialchars($n['message'] ?? '') ?><br>
-        <small>
-            Sent by: <b><?= htmlspecialchars($n['sender_name'] ?? $n['sent_by'] ?? '') ?></b>
-            <?= $sent_at ? date('d M Y H:i', strtotime($sent_at)) : '' ?><br>
-            <?php if ($immediate_termination): ?>
-                <span class="badge bg-danger">Immediate Termination</span>
-            <?php else: ?>
-                <span class="badge bg-warning text-dark responsive-badge">
-                    Notice Period: <?= $notice_period_days ?> days,<br>
-                    Contract ends: <?= $contract_notice_end_date ?>
-                </span>
+            <!-- SEND TERMINATION NOTICE (collapsible section) -->
+            <?php
+            $active_notice = null;
+            foreach ($data['all_notices'] as $n) {
+                if (($n['status'] ?? 'active') === 'active') {
+                    $active_notice = $n;
+                    break;
+                }
+            }
+            if (!$active_notice && $i['locked'] && !$terminated): ?>
+                <button class="caret-btn mb-2 text-danger text-bold" type="button"
+                    onclick="toggleNoticeSection('notice-section-<?= $claim_id ?>','caret-arrow-<?= $claim_id ?>')">
+                    <span id="caret-arrow-<?= $claim_id ?>" class="caret-arrow text-danger text-bold">&gt;</span> Send Termination Notice
+                </button>
+                <div id="notice-section-<?= $claim_id ?>" class="dropdown-notice-section mt-2">
+                    <form method="POST" action="send-rent-notice.php">
+                        <input type="hidden" name="claim_id" value="<?= $claim_id ?>">
+                        <input type="hidden" name="contract_id" value="<?= $i['contract_id'] ?>">
+                        <input type="hidden" name="notice_type" value="period">
+                        <div class="mb-2">
+                            <label for="reason<?= $claim_id ?>">Notice Message / Reason</label>
+                            <textarea name="reason" id="reason<?= $claim_id ?>" class="form-control" required></textarea>
+                        </div>
+                        <div class="mb-2">
+                            <label>Termination Type:</label><br>
+                            <span class="badge bg-warning text-dark">
+                                Notice Period: <?= intval($i['notice_period_months']) ?> months
+                            </span>
+                        </div>
+                        <button class="btn btn-danger btn-sm">Send Termination Notice</button>
+                        <div class="form-text text-muted">
+                            Contact the Agency for immediate termination.
+                        </div>
+                    </form>
+                </div>
             <?php endif; ?>
-        </small>
-    </div>
-<?php endif; ?>
+            <hr>
 
-<?php if (!empty($data['all_notices'])): ?>
-    <div class="alert alert-info mt-2">
-        <b>Contract Notices:</b><br>
-        <ul class="mb-0">
-<?php foreach ($data['all_notices'] as $n): 
-    $notice_period_months = isset($i['notice_period_months']) ? intval($i['notice_period_months']) : 0;
-    $notice_period_days = $notice_period_months * 30;
-    $immediate_termination = isset($n['immediate_termination']) ? $n['immediate_termination'] : 0;
-    $sent_at = isset($n['sent_at']) ? $n['sent_at'] : null;
-    $contract_notice_end_date = ($sent_at && $notice_period_days)
-        ? date('d M Y', strtotime($sent_at . ' +' . $notice_period_days . ' days'))
-        : 'N/A';
-?>
-    <li>
-        <?= htmlspecialchars($n['message'] ?? '') ?><br>
-        <small>
-            Sent by: <b><?= htmlspecialchars($n['sender_name'] ?? $n['sent_by'] ?? '') ?></b>
-            <?= $sent_at ? date('d M Y H:i', strtotime($sent_at)) : '' ?> |
-            <?php if ($immediate_termination): ?>
-                <span class="badge bg-danger">Immediate Termination</span>
-            <?php else: ?>
-                <span class="badge bg-warning text-dark responsive-badge">
-                    Notice Period: <?= $notice_period_days ?> days,
-                    Contract ends: <?= $contract_notice_end_date ?>
-                </span>
+            <!-- WARNING (only latest, only if unpaid, only if no proof) -->
+            <?php if ($showWarning): ?>
+                <div class="alert alert-danger mt-3">
+                    <b>Payment Reminder:</b> <?= htmlspecialchars($data['latest_warning']['message']) ?><br>
+                    <small class="text-muted"><?= date('d M Y H:i', strtotime($data['latest_warning']['sent_at'])) ?></small>
+                </div>
             <?php endif; ?>
-            <?php if (($n['status'] ?? '') === 'cancelled'): ?>
-                <span class="badge bg-secondary">Cancelled</span>
+
+            <hr>
+            <!-- NOTICE (only latest) -->
+            <?php if ($data['latest_notice']): ?>
+                <?php
+                    $n = $data['latest_notice'];
+                    $notice_period_months = isset($i['notice_period_months']) ? intval($i['notice_period_months']) : 0;
+                    $notice_period_days = $notice_period_months * 30;
+                    $immediate_termination = isset($n['immediate_termination']) ? $n['immediate_termination'] : 0;
+                    $sent_at = isset($n['sent_at']) ? $n['sent_at'] : null;
+                    $contract_notice_end_date = ($sent_at && $notice_period_days)
+                        ? date('d M Y', strtotime($sent_at . ' +' . $notice_period_days . ' days'))
+                        : 'N/A';
+                ?>
+                <div class="alert alert-info mt-2">
+                    <b>Notice:</b> <?= htmlspecialchars($n['message'] ?? '') ?><br>
+                    <small>
+                        Sent by: <b><?= htmlspecialchars($n['sender_name'] ?? $n['sent_by'] ?? '') ?></b>
+                        <?= $sent_at ? date('d M Y H:i', strtotime($sent_at)) : '' ?><br>
+                        <?php if ($immediate_termination): ?>
+                            <span class="badge bg-danger">Immediate Termination</span>
+                        <?php else: ?>
+                            <span class="badge bg-warning text-dark responsive-badge">
+                                Notice Period: <?= $notice_period_days ?> days,<br>
+                                Contract ends: <?= $contract_notice_end_date ?>
+                            </span>
+                        <?php endif; ?>
+                    </small>
+                </div>
             <?php endif; ?>
-        </small>
-    </li>
-<?php endforeach; ?>
-        </ul>
+
+            <?php if (!empty($data['all_notices'])): ?>
+                <div class="alert alert-info mt-2">
+                    <b>Contract Notices:</b><br>
+                    <ul class="mb-0">
+                <?php foreach ($data['all_notices'] as $n):
+                    $notice_period_months = isset($i['notice_period_months']) ? intval($i['notice_period_months']) : 0;
+                    $notice_period_days = $notice_period_months * 30;
+                    $immediate_termination = isset($n['immediate_termination']) ? $n['immediate_termination'] : 0;
+                    $sent_at = isset($n['sent_at']) ? $n['sent_at'] : null;
+                    $contract_notice_end_date = ($sent_at && $notice_period_days)
+                        ? date('d M Y', strtotime($sent_at . ' +' . $notice_period_days . ' days'))
+                        : 'N/A';
+                ?>
+                    <li>
+                        <?= htmlspecialchars($n['message'] ?? '') ?><br>
+                        <small>
+                            Sent by: <b><?= htmlspecialchars($n['sender_name'] ?? $n['sent_by'] ?? '') ?></b>
+                            <?= $sent_at ? date('d M Y H:i', strtotime($sent_at)) : '' ?> |
+                            <?php if ($immediate_termination): ?>
+                                <span class="badge bg-danger">Immediate Termination</span>
+                            <?php else: ?>
+                                <span class="badge bg-warning text-dark responsive-badge">
+                                    Notice Period: <?= $notice_period_days ?> days,
+                                    Contract ends: <?= $contract_notice_end_date ?>
+                                </span>
+                            <?php endif; ?>
+                            <?php if (($n['status'] ?? '') === 'cancelled'): ?>
+                                <span class="badge bg-secondary">Cancelled</span>
+                            <?php endif; ?>
+                        </small>
+                    </li>
+                <?php endforeach; ?>
+                    </ul>
+                </div>
+            <?php endif; ?>
+
+            <hr>
+<!-- RENT INVOICE SECTION: Simple Table All-In-One -->
+<h6>Recurring Rent Invoices</h6>
+<?php if (!empty($recs)): ?>
+    <div class="table-responsive">
+        <table class="table table-bordered align-middle small">
+            <thead class="table-light">
+                <tr>
+                    <th>Period</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Due</th>
+                    <th>Invoice</th>
+                    <th>Proof</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($recs as $idx => $inv): ?>
+                    <tr <?php if($idx === 0): ?>style="background:#f8fff0"<?php endif; ?>>
+                        <td>
+                            <?= date('M Y', strtotime($inv['start_period_date'] ?? $inv['invoice_date'])) ?>
+                            <span class="text-muted">
+                                <?= date('d M Y', strtotime($inv['start_period_date'] ?? $inv['invoice_date'])) ?>
+                                -
+                                <?= date('d M Y', strtotime($inv['end_period_date'] ?? $inv['due_date'])) ?>
+                            </span>
+                        </td>
+                        <td><?= number_format($inv['amount'], 2) ?></td>
+                        <td>
+                            <span class="badge bg-<?= $inv['payment_status']=='confirmed'?'success':'warning' ?>">
+                                <?= ucfirst($inv['payment_status']) ?>
+                            </span>
+                        </td>
+                        <td><?= htmlspecialchars($inv['due_date']) ?></td>
+                        <td>
+                            <?php if ($inv['invoice_path']): ?>
+                                <a href="<?= htmlspecialchars($inv['invoice_path']) ?>" target="_blank">PDF</a>
+                            <?php else: ?>
+                                <span class="text-muted">—</span>
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <?php if ($inv['payment_proof']): ?>
+                                <a href="<?= htmlspecialchars($inv['payment_proof']) ?>" target="_blank">View</a>
+                            <?php else: ?>
+                                <span class="text-muted">—</span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
     </div>
+<?php else: ?>
+    <div class="text-muted">No invoices generated yet.</div>
 <?php endif; ?>
 
             <hr>
-            <!-- Payments and recurring rent table (not shown for brevity) -->
-            <!-- ... -->
         </div>
         <div class="bg-dark text-light text-center">End for this property</div>
     </div>
@@ -385,7 +483,7 @@ if (!$active_notice && $i['locked'] && !$terminated): ?>
 </div>
 <?php include 'footer.php'; ?>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"></script>
-<!-- Signature Modal (as before, not repeated for brevity) -->
+<!-- Signature Modal (unchanged for brevity) -->
 <div class="modal fade" id="signModal" tabindex="-1" aria-labelledby="signModalLabel" aria-hidden="true">
   <div class="modal-dialog">
     <form id="signForm" method="POST" action="sign-inspection-report.php">
@@ -412,6 +510,7 @@ if (!$active_notice && $i['locked'] && !$terminated): ?>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.6/dist/signature_pad.umd.min.js"></script>
 <script>
+// Signature pad for modal (unchanged)
 let signaturePad;
 document.addEventListener("DOMContentLoaded", function() {
     var signModal = document.getElementById('signModal');
@@ -438,6 +537,19 @@ document.addEventListener("DOMContentLoaded", function() {
         document.getElementById('signature_data').value = signaturePad.toDataURL();
     };
 });
+
+// Collapsible Notice Section for Send Notice
+function toggleNoticeSection(sectionId, caretId) {
+    var section = document.getElementById(sectionId);
+    var caret = document.getElementById(caretId);
+    if (section.classList.contains('show')) {
+        section.classList.remove('show');
+        caret.classList.remove('rotate');
+    } else {
+        section.classList.add('show');
+        caret.classList.add('rotate');
+    }
+}
 </script>
 <script src="navbar-close.js?v=1"></script>
 </body>

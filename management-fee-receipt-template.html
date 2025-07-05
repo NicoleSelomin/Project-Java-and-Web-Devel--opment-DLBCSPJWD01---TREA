@@ -1,0 +1,36 @@
+<!-- management-fee-receipt-template.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Management Fee Receipt</title>
+    <style>
+        body { font-family: Arial, sans-serif; color:#333; }
+        .header { font-size: 1.3rem; font-weight: bold; margin-bottom: 1em;}
+        .info { margin-bottom: 0.8em;}
+        .amount { font-size: 1.2rem; color: #2563eb; font-weight: bold;}
+        .footer { font-size:0.98em; margin-top: 2em; color:#888;}
+        .box { border:1px solid #2563eb; border-radius: 8px; padding:1em 1.5em; background: #f5f8ff; max-width:420px;}
+    </style>
+</head>
+<body>
+    <div class="box">
+        <div class="header">Management Fee Receipt</div>
+        <div class="info"><b>Agency:</b> {{AGENCY_NAME}} <br>
+            <b>Period:</b> {{PERIOD}} <br>
+            <b>Owner:</b> {{OWNER_NAME}} <br>
+            <b>Property:</b> {{PROPERTY_NAME}}
+        </div>
+        <div class="info">
+            <b>Management Fee Rate:</b> {{FEE_PERCENT}}% <br>
+            <b>Rent Collected:</b> {{RENT_RECEIVED}} CFA
+        </div>
+        <div class="amount">Management Fee Deducted: {{FEE_AMOUNT}} CFA</div>
+        <div class="footer">
+            This receipt confirms the deduction of the above management fee for professional property management services.<br>
+            <b>Date:</b> {{DATE}}<br>
+            <b>Receipt #: </b>{{RECEIPT_NO}}
+        </div>
+    </div>
+</body>
+</html>

@@ -1,13 +1,9 @@
 <?php
 /**
  * confirm-rental-management-invoices.php
- * ----------------------------------------------------------
- * Accountant interface to:
- * - View/manage recurring rent invoice per claim
- * - Activate/deactivate recurring invoicing
- * - Confirm payment proofs
- * - Show only latest invoice with statement link
- * ----------------------------------------------------------
+ * Accountant interface for recurring prepaid rent invoices.
+ * - Only one invoice per upcoming period (prepaid model)
+ * - Tenant pays for next month's rent in advance.
  */
 session_start();
 require 'db_connect.php';
@@ -57,10 +53,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['invoice_id'])) {
     exit();
 }
 
-// ------------------ INVOICE GENERATION HANDLER ------------------
+// ------------------ PREPAID INVOICE GENERATION HANDLER ------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate_invoices'], $_POST['claim_id'], $_POST['start_date'])) {
     $claimId = intval($_POST['claim_id']);
-    $startDate = $_POST['start_date'];
+    $invoice_date = $_POST['start_date'] ?? date('Y-m-01'); // Invoice created now (e.g. June 1st)
 
     $stmt = $pdo->prepare("SELECT contract_start_date, contract_end_date, amount, payment_frequency, penalty_rate, grace_period_days FROM rental_contracts WHERE claim_id = ?");
     $stmt->execute([$claimId]);
@@ -88,10 +84,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate_invoices'], 
     };
     $amount = $monthly_rent * $intervalMonths;
 
+    // ====== PREPAID LOGIC STARTS HERE ======
+    // The period covered is the NEXT period after the invoice_date
+    $start_period_date = (new DateTime($invoice_date))->modify('+1 month')->format('Y-m-01');
+    $end_period_date = (new DateTime($start_period_date))->modify('+' . ($intervalMonths - 1) . ' months')->format('Y-m-t');
+    $due_date = (new DateTime($invoice_date))->modify("+{$grace_period_days} days")->format('Y-m-d');
+
+    // Only allow invoice within contract period (for PREPAID, check next period in range)
     $start = new DateTime($contract_start_date);
     $end = new DateTime($contract_end_date);
-    $interval = new DateInterval('P' . $intervalMonths . 'M');
-    $period = new DatePeriod($start, $interval, $end);
+    $periodStart = new DateTime($start_period_date);
+    if ($periodStart < $start || $periodStart > $end) {
+        $_SESSION['message'] = "Invoice covers a period out of contract range.";
+        $_SESSION['message_type'] = "danger";
+        header("Location: confirm-rental-management-invoices.php");
+        exit();
+    }
+
+    // Check for duplicate (by covered period, not invoice date)
+    $prepaid_month = (new DateTime($invoice_date))->modify('+1 month')->format('Y-m');
+    $check = $pdo->prepare("SELECT invoice_id FROM rental_recurring_invoices WHERE claim_id = ? AND DATE_FORMAT(start_period_date, '%Y-%m') = ?");
+    $check->execute([$claimId, $prepaid_month]);
+    if ($check->fetch()) {
+        $_SESSION['message'] = "Prepaid invoice for this period already exists.";
+        $_SESSION['message_type'] = "warning";
+        header("Location: confirm-rental-management-invoices.php");
+        exit();
+    }
 
     $stmtInsert = $pdo->prepare("
         INSERT INTO rental_recurring_invoices
@@ -99,17 +118,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate_invoices'], 
         VALUES (?, ?, ?, ?, ?, ?, 'pending', NOW(), 1)
     ");
 
-    foreach ($period as $date) {
-        $invoice_date = $date->format('Y-m-d');
-        $start_period_date = $invoice_date;
-        $end_period = (clone $date)->modify('+' . ($intervalMonths - 1) . ' months');
-        $end_period_date = $end_period->format('Y-m-t');
-        $due_date = (clone $date)->modify("+{$grace_period_days} days")->format('Y-m-d');
+    $stmtInsert->execute([$claimId, $invoice_date, $start_period_date, $end_period_date, $due_date, $amount]);
 
-        $stmtInsert->execute([$claimId, $invoice_date, $start_period_date, $end_period_date, $due_date, $amount]);
-    }
-
-    $_SESSION['message'] = "Recurring invoices generated and activated.";
+    $_SESSION['message'] = "Prepaid invoice generated: Tenant pays for $prepaid_month in advance.";
     $_SESSION['message_type'] = "success";
     header("Location: confirm-rental-management-invoices.php");
     exit();
@@ -120,7 +131,7 @@ $stmt = $pdo->query("
 SELECT cc.claim_id, cc.client_id, u.full_name AS client_name, p.property_name, p.location,
        rc.contract_signed_path, rc.contract_start_date, rc.contract_end_date, rc.amount AS monthly_rent,
        rc.penalty_rate, rc.payment_frequency, rc.grace_period_days,
-       ri.invoice_id, ri.invoice_date, ri.due_date, ri.amount as invoice_amount, ri.payment_proof,
+       ri.invoice_id, ri.invoice_date, ri.start_period_date, ri.end_period_date, ri.due_date, ri.amount as invoice_amount, ri.payment_proof,
        ri.payment_status, ri.recurring_active
 FROM client_claims cc
 JOIN clients c ON cc.client_id = c.client_id
@@ -145,6 +156,8 @@ foreach ($invoices as $inv) {
         $grouped[$cid]['invoices'][] = [
             'invoice_id'      => $inv['invoice_id'],
             'invoice_date'    => $inv['invoice_date'],
+            'start_period_date' => $inv['start_period_date'],
+            'end_period_date' => $inv['end_period_date'],
             'due_date'        => $inv['due_date'],
             'amount'          => $inv['invoice_amount'],
             'penalty_rate'    => $inv['penalty_rate'],
@@ -158,7 +171,6 @@ foreach ($invoices as $inv) {
     }
 }
 ?>
-
 <!DOCTYPE html>
 <html>
 <head>
@@ -325,6 +337,7 @@ Please act now to avoid further consequences.
         <thead>
             <tr>
                 <th>Invoice Date</th>
+                <th>Period Covered</th>
                 <th>Due Date</th>
                 <th>Amount</th>
                 <th>Status</th>
@@ -335,6 +348,9 @@ Please act now to avoid further consequences.
         <tbody>
             <tr>
                 <td><?= htmlspecialchars($currentInvoice['invoice_date']) ?></td>
+                <td>
+                    <?= htmlspecialchars($currentInvoice['start_period_date']) ?> to <?= htmlspecialchars($currentInvoice['end_period_date']) ?>
+                </td>
                 <td><?= htmlspecialchars($currentInvoice['due_date']) ?></td>
                 <td><?= number_format($currentInvoice['amount'],2) ?></td>
                 <td><?= ucfirst(htmlspecialchars($currentInvoice['payment_status'])) ?></td>
